@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from threading import Thread
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, PreCheckoutQueryHandler
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, PreCheckoutQueryHandler, ConversationHandler
 
 BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_ID = 6127276408
@@ -23,6 +23,9 @@ PRO_MIN_WITHDRAW = 100
 PRO_PRICE_STARS = 100
 
 TASKS = []
+
+# Состояния для вывода
+WAITING_SBP_DETAILS, WAITING_CARD_DETAILS, WAITING_CRYPTO_DETAILS, WAITING_STARS_DETAILS = range(4)
 
 def rub_to_stars(rub):
     return int(rub / 3)
@@ -449,6 +452,240 @@ def handle_buttons(update: Update, context):
             return
         update.message.reply_text("✅ <b>АДМИН-ПАНЕЛЬ</b>\n\nДобро пожаловать!", parse_mode="HTML", reply_markup=admin_inline_keyboard())
 
+def withdraw_sbp_start(update: Update, context):
+    query = update.callback_query
+    query.answer()
+    context.user_data['withdraw_amount'] = query.message.reply_to_message.text.split("💰 Сумма к выводу:")[1].split("₽")[0].strip() if "💰 Сумма к выводу:" in query.message.text else context.user_data.get('withdraw_amount', 0)
+    query.edit_message_text(
+        f"📱 <b>ВЫВОД НА КАРТУ ЧЕРЕЗ СБП</b>\n\n"
+        f"💰 Сумма к выводу: {context.user_data.get('withdraw_amount', 0)} ₽\n\n"
+        f"📝 <b>Введите данные для перевода:</b>\n\n"
+        f"1️⃣ Номер телефона (привязанный к карте)\n"
+        f"2️⃣ Банк получателя\n"
+        f"3️⃣ Имя и фамилия получателя\n\n"
+        f"✏️ <b>Пример:</b>\n"
+        f"<code>+79123456789, Тинькофф, Иван Иванов</code>\n\n"
+        f"Напишите всё одной строкой через запятую:",
+        parse_mode="HTML"
+    )
+    return WAITING_SBP_DETAILS
+
+def withdraw_card_start(update: Update, context):
+    query = update.callback_query
+    query.answer()
+    query.edit_message_text(
+        f"💳 <b>ВЫВОД НА БАНКОВСКУЮ КАРТУ</b>\n\n"
+        f"💰 Сумма к выводу: {context.user_data.get('withdraw_amount', 0)} ₽\n\n"
+        f"📝 <b>Введите данные для перевода:</b>\n\n"
+        f"1️⃣ Номер карты (16 цифр)\n"
+        f"2️⃣ Название банка\n"
+        f"3️⃣ Имя и фамилия владельца\n\n"
+        f"✏️ <b>Пример:</b>\n"
+        f"<code>1234 5678 9012 3456, Тинькофф, Иван Иванов</code>\n\n"
+        f"Напишите всё одной строкой через запятую:",
+        parse_mode="HTML"
+    )
+    return WAITING_CARD_DETAILS
+
+def withdraw_crypto_start(update: Update, context):
+    query = update.callback_query
+    query.answer()
+    usdt_amount = rub_to_usdt(context.user_data.get('withdraw_amount', 0))
+    query.edit_message_text(
+        f"🪙 <b>ВЫВОД В КРИПТОВАЛЮТЕ (USDT TRC20)</b>\n\n"
+        f"💰 Сумма: {context.user_data.get('withdraw_amount', 0)} ₽ ≈ <b>{usdt_amount} USDT</b>\n\n"
+        f"📝 <b>Введите адрес кошелька USDT (сеть TRC20):</b>\n\n"
+        f"Пример: <code>TXxx...xxx</code> (42 символа)\n\n"
+        f"✏️ Напишите адрес одним сообщением:",
+        parse_mode="HTML"
+    )
+    return WAITING_CRYPTO_DETAILS
+
+def withdraw_stars_start(update: Update, context):
+    query = update.callback_query
+    query.answer()
+    stars_amount = rub_to_stars(context.user_data.get('withdraw_amount', 0))
+    query.edit_message_text(
+        f"⭐ <b>ВЫВОД TELEGRAM STARS</b>\n\n"
+        f"💰 Сумма: {context.user_data.get('withdraw_amount', 0)} ₽ ≈ <b>{stars_amount} Stars</b>\n\n"
+        f"📝 <b>Введите ваш username в Telegram:</b>\n\n"
+        f"Пример: <code>@username</code>\n\n"
+        f"⚠️ Stars будут отправлены через @PremiumBot\n\n"
+        f"✏️ Напишите username одним сообщением:",
+        parse_mode="HTML"
+    )
+    return WAITING_STARS_DETAILS
+
+def withdraw_sbp_details(update: Update, context):
+    uid = update.effective_user.id
+    text = update.message.text.strip()
+    amount = context.user_data.get('withdraw_amount', 0)
+    row = get_user(uid)
+    
+    if not row or row[2] < amount:
+        update.message.reply_text("❌ Ошибка: баланс изменился. Начни вывод заново.", reply_markup=get_main_keyboard(uid))
+        return ConversationHandler.END
+    
+    stars_amount = rub_to_stars(amount)
+    usdt_amount = rub_to_usdt(amount)
+    method_name = f'📱 СБП ({amount} ₽)'
+    
+    save_withdraw_request(uid, update.effective_user.username or update.effective_user.first_name, amount, method_name, text)
+    update_balance(uid, -amount)
+    
+    admin_text = f"""💳 <b>НОВАЯ ЗАЯВКА НА ВЫВОД</b>
+
+👤 Пользователь: @{update.effective_user.username or update.effective_user.first_name}
+🆔 ID: {uid}
+💰 Сумма: {amount} ₽
+💳 Способ: {method_name}
+📝 Реквизиты: <code>{text}</code>
+📅 Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+    context.bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
+    
+    update.message.reply_text(
+        f"✅ <b>ЗАЯВКА НА ВЫВОД ОТПРАВЛЕНА!</b>\n\n"
+        f"💰 Сумма: {amount} ₽\n"
+        f"💳 Способ: {method_name}\n"
+        f"📝 Реквизиты: <code>{text}</code>\n\n"
+        f"⏱ Обычно обработка занимает до 24 часов.\n"
+        f"📩 Как только переведу деньги — напишу сюда.\n\n"
+        f"👨‍💻 По вопросам: @n1kolay0_0",
+        parse_mode="HTML",
+        reply_markup=get_main_keyboard(uid)
+    )
+    
+    context.user_data['withdraw_amount'] = None
+    return ConversationHandler.END
+
+def withdraw_card_details(update: Update, context):
+    uid = update.effective_user.id
+    text = update.message.text.strip()
+    amount = context.user_data.get('withdraw_amount', 0)
+    row = get_user(uid)
+    
+    if not row or row[2] < amount:
+        update.message.reply_text("❌ Ошибка: баланс изменился. Начни вывод заново.", reply_markup=get_main_keyboard(uid))
+        return ConversationHandler.END
+    
+    method_name = f'💳 Банковская карта ({amount} ₽)'
+    
+    save_withdraw_request(uid, update.effective_user.username or update.effective_user.first_name, amount, method_name, text)
+    update_balance(uid, -amount)
+    
+    admin_text = f"""💳 <b>НОВАЯ ЗАЯВКА НА ВЫВОД</b>
+
+👤 Пользователь: @{update.effective_user.username or update.effective_user.first_name}
+🆔 ID: {uid}
+💰 Сумма: {amount} ₽
+💳 Способ: {method_name}
+📝 Реквизиты: <code>{text}</code>
+📅 Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+    context.bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
+    
+    update.message.reply_text(
+        f"✅ <b>ЗАЯВКА НА ВЫВОД ОТПРАВЛЕНА!</b>\n\n"
+        f"💰 Сумма: {amount} ₽\n"
+        f"💳 Способ: {method_name}\n"
+        f"📝 Реквизиты: <code>{text}</code>\n\n"
+        f"⏱ Обычно обработка занимает до 24 часов.\n"
+        f"📩 Как только переведу деньги — напишу сюда.\n\n"
+        f"👨‍💻 По вопросам: @n1kolay0_0",
+        parse_mode="HTML",
+        reply_markup=get_main_keyboard(uid)
+    )
+    
+    context.user_data['withdraw_amount'] = None
+    return ConversationHandler.END
+
+def withdraw_crypto_details(update: Update, context):
+    uid = update.effective_user.id
+    text = update.message.text.strip()
+    amount = context.user_data.get('withdraw_amount', 0)
+    row = get_user(uid)
+    
+    if not row or row[2] < amount:
+        update.message.reply_text("❌ Ошибка: баланс изменился. Начни вывод заново.", reply_markup=get_main_keyboard(uid))
+        return ConversationHandler.END
+    
+    usdt_amount = rub_to_usdt(amount)
+    method_name = f'🪙 Криптовалюта USDT TRC20 ({usdt_amount} USDT)'
+    
+    save_withdraw_request(uid, update.effective_user.username or update.effective_user.first_name, amount, method_name, text)
+    update_balance(uid, -amount)
+    
+    admin_text = f"""💳 <b>НОВАЯ ЗАЯВКА НА ВЫВОД</b>
+
+👤 Пользователь: @{update.effective_user.username or update.effective_user.first_name}
+🆔 ID: {uid}
+💰 Сумма: {amount} ₽
+💳 Способ: {method_name}
+📝 Реквизиты: <code>{text}</code>
+📅 Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+    context.bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
+    
+    update.message.reply_text(
+        f"✅ <b>ЗАЯВКА НА ВЫВОД ОТПРАВЛЕНА!</b>\n\n"
+        f"💰 Сумма: {amount} ₽\n"
+        f"🪙 Вы получите: {usdt_amount} USDT\n"
+        f"💳 Способ: {method_name}\n"
+        f"📝 Реквизиты: <code>{text}</code>\n\n"
+        f"⏱ Обычно обработка занимает до 24 часов.\n"
+        f"📩 Как только переведу деньги — напишу сюда.\n\n"
+        f"👨‍💻 По вопросам: @n1kolay0_0",
+        parse_mode="HTML",
+        reply_markup=get_main_keyboard(uid)
+    )
+    
+    context.user_data['withdraw_amount'] = None
+    return ConversationHandler.END
+
+def withdraw_stars_details(update: Update, context):
+    uid = update.effective_user.id
+    text = update.message.text.strip()
+    amount = context.user_data.get('withdraw_amount', 0)
+    row = get_user(uid)
+    
+    if not row or row[2] < amount:
+        update.message.reply_text("❌ Ошибка: баланс изменился. Начни вывод заново.", reply_markup=get_main_keyboard(uid))
+        return ConversationHandler.END
+    
+    stars_amount = rub_to_stars(amount)
+    method_name = f'⭐ Telegram Stars ({stars_amount} Stars)'
+    
+    save_withdraw_request(uid, update.effective_user.username or update.effective_user.first_name, amount, method_name, text)
+    update_balance(uid, -amount)
+    
+    admin_text = f"""💳 <b>НОВАЯ ЗАЯВКА НА ВЫВОД</b>
+
+👤 Пользователь: @{update.effective_user.username or update.effective_user.first_name}
+🆔 ID: {uid}
+💰 Сумма: {amount} ₽
+💳 Способ: {method_name}
+📝 Реквизиты: <code>{text}</code>
+📅 Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+    context.bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
+    
+    update.message.reply_text(
+        f"✅ <b>ЗАЯВКА НА ВЫВОД ОТПРАВЛЕНА!</b>\n\n"
+        f"💰 Сумма: {amount} ₽\n"
+        f"⭐ Вы получите: {stars_amount} Stars\n"
+        f"💳 Способ: {method_name}\n"
+        f"📝 Реквизиты: <code>{text}</code>\n\n"
+        f"⏱ Обычно обработка занимает до 24 часов.\n"
+        f"📩 Как только переведу деньги — напишу сюда.\n\n"
+        f"👨‍💻 По вопросам: @n1kolay0_0",
+        parse_mode="HTML",
+        reply_markup=get_main_keyboard(uid)
+    )
+    
+    context.user_data['withdraw_amount'] = None
+    return ConversationHandler.END
+
+def cancel_withdraw(update: Update, context):
+    update.message.reply_text("❌ Вывод отменён.", reply_markup=get_main_keyboard(update.effective_user.id))
+    return ConversationHandler.END
+
 def button_handler(update: Update, context):
     query = update.callback_query
     query.answer()
@@ -527,70 +764,6 @@ def button_handler(update: Update, context):
         query.edit_message_text("📋 <b>Доступные задания</b>", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
         return
     
-    # ВЫВОД СРЕДСТВ
-    if data == "withdraw_sbp":
-        context.user_data['withdraw_method'] = 'sbp'
-        context.user_data['awaiting_withdraw_details'] = True
-        query.edit_message_text(
-            f"📱 <b>ВЫВОД НА КАРТУ ЧЕРЕЗ СБП</b>\n\n"
-            f"💰 Сумма к выводу: {context.user_data.get('withdraw_amount', 0)} ₽\n\n"
-            f"📝 <b>Введите данные для перевода:</b>\n\n"
-            f"1️⃣ Номер телефона (привязанный к карте)\n"
-            f"2️⃣ Банк получателя\n"
-            f"3️⃣ Имя и фамилия получателя\n\n"
-            f"✏️ <b>Пример:</b>\n"
-            f"<code>+79123456789, Тинькофф, Иван Иванов</code>\n\n"
-            f"Напишите всё одной строкой через запятую:",
-            parse_mode="HTML"
-        )
-        return
-    
-    if data == "withdraw_card":
-        context.user_data['withdraw_method'] = 'card'
-        context.user_data['awaiting_withdraw_details'] = True
-        query.edit_message_text(
-            f"💳 <b>ВЫВОД НА БАНКОВСКУЮ КАРТУ</b>\n\n"
-            f"💰 Сумма к выводу: {context.user_data.get('withdraw_amount', 0)} ₽\n\n"
-            f"📝 <b>Введите данные для перевода:</b>\n\n"
-            f"1️⃣ Номер карты (16 цифр)\n"
-            f"2️⃣ Название банка\n"
-            f"3️⃣ Имя и фамилия владельца\n\n"
-            f"✏️ <b>Пример:</b>\n"
-            f"<code>1234 5678 9012 3456, Тинькофф, Иван Иванов</code>\n\n"
-            f"Напишите всё одной строкой через запятую:",
-            parse_mode="HTML"
-        )
-        return
-    
-    if data == "withdraw_crypto":
-        context.user_data['withdraw_method'] = 'crypto'
-        context.user_data['awaiting_withdraw_details'] = True
-        usdt_amount = rub_to_usdt(context.user_data.get('withdraw_amount', 0))
-        query.edit_message_text(
-            f"🪙 <b>ВЫВОД В КРИПТОВАЛЮТЕ (USDT TRC20)</b>\n\n"
-            f"💰 Сумма: {context.user_data.get('withdraw_amount', 0)} ₽ ≈ <b>{usdt_amount} USDT</b>\n\n"
-            f"📝 <b>Введите адрес кошелька USDT (сеть TRC20):</b>\n\n"
-            f"Пример: <code>TXxx...xxx</code> (42 символа)\n\n"
-            f"✏️ Напишите адрес одним сообщением:",
-            parse_mode="HTML"
-        )
-        return
-    
-    if data == "withdraw_stars":
-        context.user_data['withdraw_method'] = 'stars'
-        context.user_data['awaiting_withdraw_details'] = True
-        stars_amount = rub_to_stars(context.user_data.get('withdraw_amount', 0))
-        query.edit_message_text(
-            f"⭐ <b>ВЫВОД TELEGRAM STARS</b>\n\n"
-            f"💰 Сумма: {context.user_data.get('withdraw_amount', 0)} ₽ ≈ <b>{stars_amount} Stars</b>\n\n"
-            f"📝 <b>Введите ваш username в Telegram:</b>\n\n"
-            f"Пример: <code>@username</code>\n\n"
-            f"⚠️ Stars будут отправлены через @PremiumBot\n\n"
-            f"✏️ Напишите username одним сообщением:",
-            parse_mode="HTML"
-        )
-        return
-    
     if data == "back_to_menu":
         query.edit_message_text("🤝 <b>Главное меню</b>", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
         return
@@ -601,26 +774,11 @@ def button_handler(update: Update, context):
         return
     
     if data == "admin_give":
-        query.edit_message_text(
-            "💰 <b>Выдать деньги</b>\n\n"
-            "/give ID сумма\n\n"
-            "Пример: /give 6127276408 100",
-            parse_mode="HTML"
-        )
+        query.edit_message_text("💰 <b>Выдать деньги</b>\n\n/give ID сумма\n\nПример: /give 6127276408 100", parse_mode="HTML")
     elif data == "admin_add_balance":
-        query.edit_message_text(
-            "➕ <b>Пополнить баланс пользователю</b>\n\n"
-            "/add_balance ID сумма\n\n"
-            "Пример: /add_balance 6127276408 500",
-            parse_mode="HTML"
-        )
+        query.edit_message_text("➕ <b>Пополнить баланс</b>\n\n/add_balance ID сумма\n\nПример: /add_balance 6127276408 500", parse_mode="HTML")
     elif data == "admin_broadcast":
-        query.edit_message_text(
-            "📢 <b>Рассылка</b>\n\n"
-            "/broadcast текст\n\n"
-            "Пример: /broadcast Всем привет!",
-            parse_mode="HTML"
-        )
+        query.edit_message_text("📢 <b>Рассылка</b>\n\n/broadcast текст\n\nПример: /broadcast Всем привет!", parse_mode="HTML")
     elif data == "admin_users":
         users = get_all_users()
         if not users:
@@ -636,34 +794,13 @@ def button_handler(update: Update, context):
         text = f"📊 <b>Статистика</b>\n\n👥 Пользователей: {total_users}\n💰 Заработано: {total_earned} ₽\n💳 На балансе: {total_balance} ₽"
         query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_inline_keyboard())
     elif data == "admin_bonus_all":
-        query.edit_message_text(
-            "🎁 <b>Бонус всем</b>\n\n"
-            "/bonus_all сумма\n\n"
-            "Пример: /bonus_all 10",
-            parse_mode="HTML"
-        )
+        query.edit_message_text("🎁 <b>Бонус всем</b>\n\n/bonus_all сумма\n\nПример: /bonus_all 10", parse_mode="HTML")
     elif data == "admin_add_task":
-        query.edit_message_text(
-            "📝 <b>Добавить задание</b>\n\n"
-            "/add_task название | @username | награда\n\n"
-            "Пример:\n"
-            "/add_task Подпишись на канал | @example | 10",
-            parse_mode="HTML"
-        )
+        query.edit_message_text("📝 <b>Добавить задание</b>\n\n/add_task название | @username | награда\n\nПример:\n/add_task Подпишись на канал | @example | 10", parse_mode="HTML")
     elif data == "admin_pro_on":
-        query.edit_message_text(
-            "👑 <b>Включить PRO-подписку</b>\n\n"
-            "/pro_on ID\n\n"
-            "Пример: /pro_on 6127276408",
-            parse_mode="HTML"
-        )
+        query.edit_message_text("👑 <b>Включить PRO</b>\n\n/pro_on ID\n\nПример: /pro_on 6127276408", parse_mode="HTML")
     elif data == "admin_pro_off":
-        query.edit_message_text(
-            "👑 <b>Выключить PRO-подписку</b>\n\n"
-            "/pro_off ID\n\n"
-            "Пример: /pro_off 6127276408",
-            parse_mode="HTML"
-        )
+        query.edit_message_text("👑 <b>Выключить PRO</b>\n\n/pro_off ID\n\nПример: /pro_off 6127276408", parse_mode="HTML")
     elif data == "admin_withdraw_requests":
         requests = get_pending_requests()
         if not requests:
@@ -678,83 +815,11 @@ def button_handler(update: Update, context):
         ])
         query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
     elif data == "admin_mark_paid":
-        query.edit_message_text(
-            "✅ <b>Отметить заявку как выплаченную</b>\n\n"
-            "Введи номер заявки:\n"
-            "<code>/pay ID_заявки</code>\n\n"
-            "Пример: <code>/pay 1</code>",
-            parse_mode="HTML", reply_markup=admin_inline_keyboard()
-        )
+        query.edit_message_text("✅ <b>Отметить выплату</b>\n\n/pay ID_заявки\n\nПример: /pay 1", parse_mode="HTML", reply_markup=admin_inline_keyboard())
     elif data == "admin_back_to_menu":
         query.edit_message_text("✅ <b>АДМИН-ПАНЕЛЬ</b>\n\nДобро пожаловать!", parse_mode="HTML", reply_markup=admin_inline_keyboard())
     elif data == "admin_close":
         query.edit_message_text("🔒 Админ-панель закрыта", reply_markup=get_main_keyboard(uid))
-
-def handle_withdraw_details(update: Update, context):
-    uid = update.effective_user.id
-    text = update.message.text.strip()
-    
-    if not context.user_data.get('awaiting_withdraw_details'):
-        update.message.reply_text("🤝 Используй кнопки меню:", reply_markup=get_main_keyboard(uid))
-        return
-    
-    amount_rub = context.user_data.get('withdraw_amount', 0)
-    method = context.user_data.get('withdraw_method', 'unknown')
-    row = get_user(uid)
-    
-    if not row or row[2] < amount_rub:
-        update.message.reply_text("❌ Ошибка: баланс изменился. Начни вывод заново.", reply_markup=get_main_keyboard(uid))
-        context.user_data['awaiting_withdraw_details'] = False
-        context.user_data['withdraw_amount'] = None
-        context.user_data['withdraw_method'] = None
-        return
-    
-    stars_amount = rub_to_stars(amount_rub)
-    usdt_amount = rub_to_usdt(amount_rub)
-    
-    method_names = {
-        'sbp': f'📱 СБП ({amount_rub} ₽)',
-        'card': f'💳 Банковская карта ({amount_rub} ₽)',
-        'crypto': f'🪙 Криптовалюта USDT TRC20 ({usdt_amount} USDT)',
-        'stars': f'⭐ Telegram Stars ({stars_amount} Stars)'
-    }
-    method_name = method_names.get(method, 'Неизвестный метод')
-    
-    save_withdraw_request(uid, update.effective_user.username or update.effective_user.first_name, amount_rub, method_name, text)
-    update_balance(uid, -amount_rub)
-    
-    admin_text = f"""💳 <b>НОВАЯ ЗАЯВКА НА ВЫВОД</b>
-
-👤 Пользователь: @{update.effective_user.username or update.effective_user.first_name}
-🆔 ID: {uid}
-💰 Сумма: {amount_rub} ₽
-💳 Способ: {method_name}
-📝 Реквизиты: <code>{text}</code>
-📅 Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
-    context.bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
-    
-    if method == 'stars':
-        convert_text = f"\n⭐ Вы получите: {stars_amount} Stars"
-    elif method == 'crypto':
-        convert_text = f"\n🪙 Вы получите: {usdt_amount} USDT"
-    else:
-        convert_text = ""
-    
-    update.message.reply_text(
-        f"✅ <b>ЗАЯВКА НА ВЫВОД ОТПРАВЛЕНА!</b>\n\n"
-        f"💰 Сумма: {amount_rub} ₽{convert_text}\n"
-        f"💳 Способ: {method_name}\n"
-        f"📝 Реквизиты: <code>{text}</code>\n\n"
-        f"⏱ Обычно обработка занимает до 24 часов.\n"
-        f"📩 Как только переведу деньги — напишу сюда.\n\n"
-        f"👨‍💻 По вопросам: @n1kolay0_0",
-        parse_mode="HTML",
-        reply_markup=get_main_keyboard(uid)
-    )
-    
-    context.user_data['awaiting_withdraw_details'] = False
-    context.user_data['withdraw_amount'] = None
-    context.user_data['withdraw_method'] = None
 
 def add_balance_command(update: Update, context):
     if update.effective_user.id != ADMIN_ID:
@@ -918,6 +983,24 @@ if __name__ == "__main__":
     Thread(target=run_flask).start()
     updater = Updater(token=BOT_TOKEN)
     dp = updater.dispatcher
+    
+    # ConversationHandler для вывода
+    withdraw_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(withdraw_sbp_start, pattern="withdraw_sbp"),
+            CallbackQueryHandler(withdraw_card_start, pattern="withdraw_card"),
+            CallbackQueryHandler(withdraw_crypto_start, pattern="withdraw_crypto"),
+            CallbackQueryHandler(withdraw_stars_start, pattern="withdraw_stars"),
+        ],
+        states={
+            WAITING_SBP_DETAILS: [MessageHandler(Filters.text & ~Filters.command, withdraw_sbp_details)],
+            WAITING_CARD_DETAILS: [MessageHandler(Filters.text & ~Filters.command, withdraw_card_details)],
+            WAITING_CRYPTO_DETAILS: [MessageHandler(Filters.text & ~Filters.command, withdraw_crypto_details)],
+            WAITING_STARS_DETAILS: [MessageHandler(Filters.text & ~Filters.command, withdraw_stars_details)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_withdraw)],
+    )
+    
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("id", id_command))
     dp.add_handler(CommandHandler("give", give_command))
@@ -932,9 +1015,10 @@ if __name__ == "__main__":
     dp.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="check_sub"))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_buttons))
     dp.add_handler(CallbackQueryHandler(button_handler))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_withdraw_details))
+    dp.add_handler(withdraw_conv)
     dp.add_handler(PreCheckoutQueryHandler(pre_checkout))
     dp.add_handler(MessageHandler(Filters.successful_payment, successful_payment))
+    
     updater.start_polling()
     print("Бот запущен!")
     updater.idle()
