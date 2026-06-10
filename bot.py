@@ -11,10 +11,10 @@ from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageH
 BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_PASSWORD = "1997"
 
-REFERRAL_REWARD = 15.0
-REFERRED_REWARD = 10.0
-DAILY_BONUS = 5.0
-MIN_WITHDRAW = 100.0
+REFERRAL_REWARD = 15
+REFERRED_REWARD = 10
+DAILY_BONUS = 5
+MIN_WITHDRAW = 100
 
 PARTNER_LINKS = {
     "ozon": "https://ozon.ru/?partner=YOUR_ID",
@@ -24,9 +24,9 @@ PARTNER_LINKS = {
 }
 
 PROMO_CODES = {
-    "START2025": 50.0,
-    "BONUS100": 100.0,
-    "FRIEND2025": 75.0
+    "START2025": 50,
+    "BONUS100": 100,
+    "FRIEND2025": 75
 }
 
 flask_app = Flask(__name__)
@@ -47,8 +47,8 @@ def init_db():
                   username TEXT,
                   referrer_id INTEGER,
                   referral_code TEXT UNIQUE,
-                  balance REAL DEFAULT 0,
-                  total_earned REAL DEFAULT 0,
+                  balance INTEGER DEFAULT 0,
+                  total_earned INTEGER DEFAULT 0,
                   referrals_count INTEGER DEFAULT 0,
                   clicks INTEGER DEFAULT 0,
                   last_daily TEXT,
@@ -82,7 +82,8 @@ def update_balance(user_id, amount):
     conn = sqlite3.connect('referral_bot.db')
     c = conn.cursor()
     c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
-    c.execute("UPDATE users SET total_earned = total_earned + ? WHERE user_id = ?", (amount, user_id))
+    if amount > 0:
+        c.execute("UPDATE users SET total_earned = total_earned + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
     conn.close()
 
@@ -174,7 +175,7 @@ def main_keyboard(user_id):
     row = get_user(user_id)
     balance = row[4] if row else 0
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"💰 Баланс: {balance:.2f} ₽", callback_data="balance")],
+        [InlineKeyboardButton(f"💰 Баланс: {balance} ₽", callback_data="balance")],
         [InlineKeyboardButton("👥 Рефералы", callback_data="referrals"), InlineKeyboardButton("🔗 Моя ссылка", callback_data="my_link")],
         [InlineKeyboardButton("🏆 Топ рефералов", callback_data="top")],
         [InlineKeyboardButton("🎁 Ежедневный бонус", callback_data="daily"), InlineKeyboardButton("🎟 Промокод", callback_data="promo")],
@@ -240,8 +241,8 @@ def start(update: Update, context):
     update.message.reply_text(
         "🤝 <b>РЕФЕРАЛЬНЫЙ БОТ | ЗАРАБОТОК</b>\n\n"
         "🔥 <b>Как заработать:</b>\n"
-        "• Приглашай друзей → +15 ₽ за каждого\n"
-        "• Забирай ежедневный бонус → +5 ₽\n"
+        f"• Приглашай друзей → +{REFERRAL_REWARD} ₽ за каждого\n"
+        f"• Забирай ежедневный бонус → +{DAILY_BONUS} ₽\n"
         "• Используй промокоды → до +100 ₽\n"
         "• Переходи по партнёрским ссылкам → кэшбэк до 20%\n\n"
         f"💎 Твой код: <code>{get_user(uid)[3]}</code>\n\n"
@@ -263,8 +264,8 @@ def button_handler(update: Update, context):
         refs = row[6] if row else 0
         query.edit_message_text(
             f"💰 <b>Твой баланс</b>\n\n"
-            f"💵 Доступно: {balance:.2f} ₽\n"
-            f"📈 Заработано всего: {earned:.2f} ₽\n"
+            f"💵 Доступно: {balance} ₽\n"
+            f"📈 Заработано всего: {earned} ₽\n"
             f"👥 Приглашено: {refs}\n\n"
             f"⚡ Минимум вывода: {MIN_WITHDRAW} ₽",
             parse_mode="HTML",
@@ -332,11 +333,11 @@ def button_handler(update: Update, context):
     elif data == "withdraw":
         balance = row[4] if row else 0
         if balance < MIN_WITHDRAW:
-            query.answer(f"❌ Минимум {MIN_WITHDRAW} ₽. Твой баланс: {balance:.2f} ₽", show_alert=True)
+            query.answer(f"❌ Минимум {MIN_WITHDRAW} ₽. Твой баланс: {balance} ₽", show_alert=True)
             return
         query.edit_message_text(
             f"✅ <b>Заявка отправлена!</b>\n\n"
-            f"💰 Сумма: {balance:.2f} ₽\n"
+            f"💰 Сумма: {balance} ₽\n"
             f"📝 Администратор свяжется в ближайшее время.",
             parse_mode="HTML",
             reply_markup=main_keyboard(uid)
@@ -351,13 +352,13 @@ def button_handler(update: Update, context):
         query.edit_message_text(
             f"📊 <b>Твоя статистика</b>\n\n"
             f"👥 Рефералов: {refs}\n"
-            f"💰 Заработано: {earned:.2f} ₽\n"
-            f"💳 Доступно: {balance:.2f} ₽\n"
+            f"💰 Заработано: {earned} ₽\n"
+            f"💳 Доступно: {balance} ₽\n"
             f"🖱 Переходов: {clicks}\n"
             f"📅 В системе с: {joined[:10]}\n\n"
             f"📈 <b>Общая статистика бота</b>\n"
             f"👤 Всего пользователей: {total_users}\n"
-            f"💰 Всего заработано: {total_earned_all:.2f} ₽",
+            f"💰 Всего заработано: {total_earned_all} ₽",
             parse_mode="HTML",
             reply_markup=main_keyboard(uid)
         )
@@ -434,7 +435,7 @@ def button_handler(update: Update, context):
                 return
             text = "👥 <b>СПИСОК ПОЛЬЗОВАТЕЛЕЙ</b>\n\n"
             for i, u in enumerate(users[:20], 1):
-                text += f"{i}. @{u[1] or u[0]} | 💰 {u[2]:.2f} ₽ | 👥 {u[4]}\n"
+                text += f"{i}. @{u[1] or u[0]} | 💰 {u[2]} ₽ | 👥 {u[4]}\n"
             if len(users) > 20:
                 text += f"\n... и ещё {len(users) - 20} пользователей"
             query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
@@ -444,8 +445,8 @@ def button_handler(update: Update, context):
                 f"📊 <b>СТАТИСТИКА БОТА</b>\n\n"
                 f"👥 Пользователей: {total_users}\n"
                 f"👥 Всего рефералов: {total_refs}\n"
-                f"💰 Всего заработали: {total_earned:.2f} ₽\n"
-                f"💳 На балансе: {total_balance:.2f} ₽\n"
+                f"💰 Всего заработали: {total_earned} ₽\n"
+                f"💳 На балансе: {total_balance} ₽\n"
                 f"🖱 Переходов: {total_clicks}"
             )
             query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
@@ -475,7 +476,7 @@ def button_handler(update: Update, context):
             text = "📈 <b>ТОП ПОЛЬЗОВАТЕЛЕЙ ПО ЗАРАБОТКУ</b>\n\n"
             for i, (username, earned) in enumerate(top, 1):
                 medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "💰"
-                text += f"{medal} {i}. @{username or 'anon'} — {earned:.2f} ₽\n"
+                text += f"{medal} {i}. @{username or 'anon'} — {earned} ₽\n"
             query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
         elif data == "admin_daily_stats":
             conn = sqlite3.connect('referral_bot.db')
@@ -528,6 +529,10 @@ def handle_message(update: Update, context):
     user_id = update.effective_user.id
     text = update.message.text.strip()
     
+    # Обработка команд, если пользователь ввёл /give и т.д.
+    if text.startswith('/'):
+        return
+    
     if context.user_data.get('awaiting_admin_password'):
         if text == ADMIN_PASSWORD:
             context.user_data['admin_logged_in'] = True
@@ -560,7 +565,7 @@ def give_command(update: Update, context):
         return
     try:
         user_id = int(context.args[0])
-        amount = float(context.args[1])
+        amount = int(float(context.args[1]))
         if admin_send_money(user_id, amount):
             update.message.reply_text(f"✅ Выдано {amount} ₽ пользователю {user_id}")
             context.bot.send_message(user_id, f"🎉 <b>Администратор начислил тебе {amount} ₽!</b>", parse_mode="HTML")
@@ -575,7 +580,7 @@ def take_command(update: Update, context):
         return
     try:
         user_id = int(context.args[0])
-        amount = float(context.args[1])
+        amount = int(float(context.args[1]))
         if admin_take_money(user_id, amount):
             update.message.reply_text(f"✅ Забрано {amount} ₽ у пользователя {user_id}")
             context.bot.send_message(user_id, f"⚠️ <b>С твоего баланса списано {amount} ₽</b>", parse_mode="HTML")
@@ -607,7 +612,7 @@ def bonus_all_command(update: Update, context):
         update.message.reply_text("❌ Нет доступа. Войдите в админ-панель через главное меню.")
         return
     try:
-        amount = float(context.args[0])
+        amount = int(float(context.args[0]))
         users = get_all_users()
         success = 0
         for user in users:
@@ -627,7 +632,7 @@ def create_promo_command(update: Update, context):
         return
     try:
         code = context.args[0].upper()
-        amount = float(context.args[1])
+        amount = int(float(context.args[1]))
         PROMO_CODES[code] = amount
         update.message.reply_text(f"✅ Промокод {code} на {amount} ₽ создан!")
     except:
