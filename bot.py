@@ -3,7 +3,7 @@ import random
 import string
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler
 
 BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_ID = 6127276408
@@ -81,7 +81,7 @@ def main_keyboard(user_id):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start(update: Update, context):
     uid = update.effective_user.id
     name = update.effective_user.username or update.effective_user.first_name
     ref_id = None
@@ -100,26 +100,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_balance(ref_id, REFERRAL_REWARD)
             add_referral(ref_id)
             update_balance(uid, REFERRED_REWARD)
-            await context.bot.send_message(ref_id, f"🎉 +{REFERRAL_REWARD} ₽ за реферала @{name}")
-            await update.message.reply_text(f"🎉 Бонус {REFERRED_REWARD} ₽ за регистрацию!")
-    await update.message.reply_text("🤝 Реферальный бот\n👇 Меню:", reply_markup=main_keyboard(uid))
+            context.bot.send_message(ref_id, f"🎉 +{REFERRAL_REWARD} ₽ за реферала @{name}")
+            update.message.reply_text(f"🎉 Бонус {REFERRED_REWARD} ₽ за регистрацию!")
+    update.message.reply_text("🤝 Реферальный бот\n👇 Меню:", reply_markup=main_keyboard(uid))
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def button_handler(update: Update, context):
     query = update.callback_query
-    await query.answer()
+    query.answer()
     data = query.data
     uid = query.from_user.id
     u = get_user(uid)
     
     if data == 'bal':
-        await query.edit_message_text(f"💰 Баланс: {u['balance']:.2f} ₽\nВсего: {u['total_earned']:.2f} ₽\nРефералов: {u['referrals_count']}", reply_markup=main_keyboard(uid))
+        query.edit_message_text(f"💰 Баланс: {u['balance']:.2f} ₽\nВсего: {u['total_earned']:.2f} ₽\nРефералов: {u['referrals_count']}", reply_markup=main_keyboard(uid))
     elif data == 'link':
         url = f"https://t.me/{context.bot.username}?start={u['referral_code']}"
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📤 Поделиться", url=f"https://t.me/share/url?url={url}")], [InlineKeyboardButton("🔙 Назад", callback_data='menu')]])
-        await query.edit_message_text(f"🔗 Твоя ссылка:\n<code>{url}</code>", parse_mode='HTML', reply_markup=keyboard)
+        query.edit_message_text(f"🔗 Твоя ссылка:\n<code>{url}</code>", parse_mode='HTML', reply_markup=keyboard)
     elif data == 'refs':
         if u['referrals_count'] == 0:
-            await query.edit_message_text("👥 Нет рефералов", reply_markup=main_keyboard(uid))
+            query.edit_message_text("👥 Нет рефералов", reply_markup=main_keyboard(uid))
             return
         conn = sqlite3.connect('referral_bot.db')
         c = conn.cursor()
@@ -129,21 +129,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt = f"👥 Рефералы ({u['referrals_count']}):\n"
         for i, r in enumerate(rows, 1):
             txt += f"{i}. @{r[0] or 'anon'}\n"
-        await query.edit_message_text(txt, reply_markup=main_keyboard(uid))
+        query.edit_message_text(txt, reply_markup=main_keyboard(uid))
     elif data == 'stat':
-        await query.edit_message_text(f"📊 Рефералов: {u['referrals_count']}\n💰 Заработано: {u['total_earned']:.2f} ₽\n💳 Доступно: {u['balance']:.2f} ₽", reply_markup=main_keyboard(uid))
+        query.edit_message_text(f"📊 Рефералов: {u['referrals_count']}\n💰 Заработано: {u['total_earned']:.2f} ₽\n💳 Доступно: {u['balance']:.2f} ₽", reply_markup=main_keyboard(uid))
     elif data == 'out':
         if u['balance'] < MIN_WITHDRAW:
-            await query.answer(f"❌ Минимум {MIN_WITHDRAW} ₽", show_alert=True)
+            query.answer(f"❌ Минимум {MIN_WITHDRAW} ₽", show_alert=True)
             return
-        await context.bot.send_message(ADMIN_ID, f"💳 ЗАЯВКА\n@{query.from_user.username}\nСумма: {u['balance']:.2f} ₽")
-        await query.edit_message_text("✅ Заявка отправлена", reply_markup=main_keyboard(uid))
+        context.bot.send_message(ADMIN_ID, f"💳 ЗАЯВКА\n@{query.from_user.username}\nСумма: {u['balance']:.2f} ₽")
+        query.edit_message_text("✅ Заявка отправлена", reply_markup=main_keyboard(uid))
     elif data == 'menu':
-        await query.edit_message_text("🤝 Главное меню:", reply_markup=main_keyboard(uid))
+        query.edit_message_text("🤝 Главное меню:", reply_markup=main_keyboard(uid))
 
 if __name__ == "__main__":
     init_db()
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.run_polling()
+    updater = Updater(token=BOT_TOKEN)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CallbackQueryHandler(button_handler))
+    updater.start_polling()
+    updater.idle()
