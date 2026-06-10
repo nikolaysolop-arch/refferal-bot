@@ -11,16 +11,16 @@ BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_ID = 6127276408
 ADMIN_PASSWORD = "1997"
 
-REFERRAL_REWARD = 15
-REFERRED_REWARD = 10
+# Настройки
 DAILY_BONUS = 5
 MIN_WITHDRAW = 100
 
-PROMO_CODES = {
-    "START2025": 50,
-    "BONUS100": 100,
-    "FRIEND2025": 75
-}
+# Задания (ID, название, ссылка, награда)
+TASKS = [
+    {"id": 1, "name": "📺 Подпишись на канал", "url": "https://t.me/A_ToolsX", "reward": 10},
+    {"id": 2, "name": "👍 Поставь лайк посту", "url": "https://t.me/A_ToolsX/1", "reward": 5},
+    {"id": 3, "name": "👥 Вступи в группу", "url": "https://t.me/+XXXXXXXXXX", "reward": 15},
+]
 
 flask_app = Flask(__name__)
 
@@ -33,91 +33,96 @@ def run_flask():
 
 # ==================== БАЗА ДАННЫХ ====================
 def init_db():
-    conn = sqlite3.connect('referral_bot.db')
+    conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (user_id INTEGER PRIMARY KEY,
                   username TEXT,
-                  referrer_id INTEGER,
-                  referral_code TEXT UNIQUE,
                   balance INTEGER DEFAULT 0,
                   total_earned INTEGER DEFAULT 0,
-                  referrals_count INTEGER DEFAULT 0,
+                  completed_tasks TEXT DEFAULT '',
                   last_daily TEXT,
                   joined_date TEXT)''')
     conn.commit()
     conn.close()
 
 def get_user(user_id):
-    conn = sqlite3.connect('referral_bot.db')
+    conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
     conn.close()
     return row
 
-def create_user(user_id, username, referrer_id=None):
-    conn = sqlite3.connect('referral_bot.db')
+def create_user(user_id, username):
+    conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
-    code = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
     try:
-        c.execute("INSERT INTO users (user_id, username, referrer_id, referral_code, joined_date) VALUES (?,?,?,?,?)",
-                  (user_id, username, referrer_id, code, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+        c.execute("INSERT INTO users (user_id, username, joined_date) VALUES (?,?,?)",
+                  (user_id, username, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
         conn.commit()
         conn.close()
-        return code
+        return True
     except:
         conn.close()
-        return None
+        return False
 
 def update_balance(user_id, amount):
-    conn = sqlite3.connect('referral_bot.db')
+    conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
     c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
-    if amount > 0:
-        c.execute("UPDATE users SET total_earned = total_earned + ? WHERE user_id = ?", (amount, user_id))
+    c.execute("UPDATE users SET total_earned = total_earned + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
     conn.close()
 
-def add_referral(referrer_id):
-    conn = sqlite3.connect('referral_bot.db')
+def mark_task_completed(user_id, task_id):
+    row = get_user(user_id)
+    completed = row[4] if row else ""
+    if str(task_id) in completed.split(","):
+        return False
+    new_completed = f"{completed},{task_id}" if completed else str(task_id)
+    conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
-    c.execute("UPDATE users SET referrals_count = referrals_count + 1 WHERE user_id = ?", (referrer_id,))
+    c.execute("UPDATE users SET completed_tasks = ? WHERE user_id = ?", (new_completed, user_id))
     conn.commit()
     conn.close()
+    return True
+
+def is_task_completed(user_id, task_id):
+    row = get_user(user_id)
+    completed = row[4] if row else ""
+    return str(task_id) in completed.split(",")
+
+def get_completed_count(user_id):
+    row = get_user(user_id)
+    completed = row[4] if row else ""
+    return len([x for x in completed.split(",") if x])
 
 def can_claim_daily(user_id):
     row = get_user(user_id)
-    if not row or not row[7]:
+    if not row or not row[5]:
         return True
-    last = datetime.strptime(row[7], '%Y-%m-%d')
+    last = datetime.strptime(row[5], '%Y-%m-%d')
     return datetime.now().date() > last.date()
 
 def claim_daily(user_id):
-    conn = sqlite3.connect('referral_bot.db')
+    conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
     c.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (datetime.now().strftime('%Y-%m-%d'), user_id))
     conn.commit()
     conn.close()
     update_balance(user_id, DAILY_BONUS)
 
-def apply_promo(user_id, code):
-    if code in PROMO_CODES:
-        amount = PROMO_CODES[code]
-        update_balance(user_id, amount)
-        return True, amount
-    return False, 0
-
 def get_all_users():
-    conn = sqlite3.connect('referral_bot.db')
+    conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
-    c.execute("SELECT user_id, username, balance, total_earned, referrals_count FROM users ORDER BY total_earned DESC")
+    c.execute("SELECT user_id, username, balance, total_earned FROM users")
     rows = c.fetchall()
     conn.close()
     return rows
 
 def get_stats():
-    conn = sqlite3.connect('referral_bot.db')
+    conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM users")
     total_users = c.fetchone()[0]
@@ -125,50 +130,44 @@ def get_stats():
     total_earned = c.fetchone()[0] or 0
     c.execute("SELECT SUM(balance) FROM users")
     total_balance = c.fetchone()[0] or 0
-    c.execute("SELECT SUM(referrals_count) FROM users")
-    total_refs = c.fetchone()[0] or 0
     conn.close()
-    return total_users, total_earned, total_balance, total_refs
+    return total_users, total_earned, total_balance
 
 def admin_send_money(user_id, amount):
     update_balance(user_id, amount)
     return True
 
-def admin_take_money(user_id, amount):
-    row = get_user(user_id)
-    if row and row[4] >= amount:
-        conn = sqlite3.connect('referral_bot.db')
-        c = conn.cursor()
-        c.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
-        conn.commit()
-        conn.close()
-        return True
-    return False
-
 # ==================== КЛАВИАТУРЫ ====================
 def main_keyboard(user_id):
     row = get_user(user_id)
-    balance = row[4] if row else 0  # Индекс 4 = balance
+    balance = row[2] if row else 0
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"💰 Баланс: {balance} ₽", callback_data="balance")],
-        [InlineKeyboardButton("👥 Рефералы", callback_data="referrals"), InlineKeyboardButton("🔗 Моя ссылка", callback_data="my_link")],
-        [InlineKeyboardButton("🏆 Топ рефералов", callback_data="top")],
-        [InlineKeyboardButton("🎁 Ежедневный бонус", callback_data="daily"), InlineKeyboardButton("🎟 Промокод", callback_data="promo")],
+        [InlineKeyboardButton("📋 ВЫПОЛНИТЬ ЗАДАНИЯ", callback_data="tasks")],
+        [InlineKeyboardButton("🎁 Ежедневный бонус", callback_data="daily")],
         [InlineKeyboardButton("💸 Вывести деньги", callback_data="withdraw")],
         [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
         [InlineKeyboardButton("❓ Поддержка", callback_data="support")],
         [InlineKeyboardButton("🔐 Админ-панель", callback_data="admin_login")]
     ])
 
+def tasks_keyboard(user_id):
+    keyboard = []
+    for task in TASKS:
+        completed = is_task_completed(user_id, task["id"])
+        status = "✅" if completed else "❌"
+        keyboard.append([InlineKeyboardButton(f"{status} {task['name']} (+{task['reward']} ₽)", callback_data=f"task_{task['id']}")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back")])
+    return InlineKeyboardMarkup(keyboard)
+
 def admin_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("💰 Выдать деньги", callback_data="admin_give")],
-        [InlineKeyboardButton("💸 Забрать деньги", callback_data="admin_take")],
         [InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")],
         [InlineKeyboardButton("👥 Список пользователей", callback_data="admin_users")],
         [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats")],
         [InlineKeyboardButton("🎁 Бонус всем", callback_data="admin_bonus_all")],
-        [InlineKeyboardButton("🎟 Создать промокод", callback_data="admin_create_promo")],
+        [InlineKeyboardButton("📝 Добавить задание", callback_data="admin_add_task")],
         [InlineKeyboardButton("🔙 Закрыть", callback_data="admin_close")]
     ])
 
@@ -177,35 +176,34 @@ def start(update: Update, context):
     uid = update.effective_user.id
     name = update.effective_user.username or update.effective_user.first_name
     
-    ref_id = None
-    if context.args:
-        code = context.args[0]
-        conn = sqlite3.connect('referral_bot.db')
-        c = conn.cursor()
-        c.execute("SELECT user_id FROM users WHERE referral_code = ?", (code,))
-        row = c.fetchone()
-        conn.close()
-        if row and row[0] != uid:
-            ref_id = row[0]
-    
     if not get_user(uid):
-        create_user(uid, name, ref_id)
-        if ref_id:
-            update_balance(ref_id, REFERRAL_REWARD)
-            add_referral(ref_id)
-            update_balance(uid, REFERRED_REWARD)
-            context.bot.send_message(ref_id, f"🎉 Новый реферал! @{name}\n💰 +{REFERRAL_REWARD} ₽")
-            update.message.reply_text(f"🎉 Бонус {REFERRED_REWARD} ₽ за регистрацию!")
+        create_user(uid, name)
+        update_balance(uid, 10)
     
-    user = get_user(uid)
-    ref_code = user[3] if user else "ошибка"
+    # Красивое приветствие
+    welcome_text = f"""
+✨ <b>ДОБРО ПОЖАЛОВАТЬ, {name}!</b> ✨
+
+🤖 <b>Это бот для заработка на заданиях!</b>
+
+💰 <b>КАК ЗАРАБОТАТЬ:</b>
+• Выполняй простые задания (подписки, просмотры)
+• Забирай ежедневный бонус
+• Выводи деньги от 100 ₽
+
+📋 <b>ДОСТУПНЫЕ ЗАДАНИЯ:</b>
+• Подписка на канал — 10 ₽
+• Лайк посту — 5 ₽
+• Вступление в группу — 15 ₽
+
+🎁 <b>БОНУС:</b>
+За регистрацию ты получил 10 ₽ на баланс!
+
+👇 <b>Нажми на кнопку "ВЫПОЛНИТЬ ЗАДАНИЯ" и зарабатывай прямо сейчас!</b>
+"""
+    
     update.message.reply_text(
-        "🤝 <b>РЕФЕРАЛЬНЫЙ БОТ</b>\n\n"
-        f"🔥 За каждого друга: +{REFERRAL_REWARD} ₽\n"
-        f"🎁 Другу бонус: +{REFERRED_REWARD} ₽\n"
-        f"📅 Ежедневный бонус: +{DAILY_BONUS} ₽\n\n"
-        f"💎 Твой код: <code>{ref_code}</code>\n\n"
-        "👇 Выбери действие:",
+        welcome_text,
         parse_mode="HTML",
         reply_markup=main_keyboard(uid)
     )
@@ -218,170 +216,253 @@ def button_handler(update: Update, context):
     row = get_user(uid)
     
     if data == "balance":
-        balance = row[4] if row else 0
-        earned = row[5] if row else 0
-        refs = row[6] if row else 0
+        balance = row[2] if row else 0
+        earned = row[3] if row else 0
+        tasks_done = get_completed_count(uid)
         query.edit_message_text(
-            f"💰 <b>Твой баланс</b>\n\n"
+            f"💰 <b>ТВОЙ БАЛАНС</b>\n\n"
             f"💵 Доступно: {balance} ₽\n"
             f"📈 Заработано всего: {earned} ₽\n"
-            f"👥 Приглашено: {refs}\n\n"
+            f"✅ Выполнено заданий: {tasks_done}\n\n"
             f"⚡ Минимум вывода: {MIN_WITHDRAW} ₽",
             parse_mode="HTML",
             reply_markup=main_keyboard(uid)
         )
-    elif data == "my_link":
-        code = row[3] if row else None
-        if code:
-            bot_info = context.bot.get_me()
-            url = f"https://t.me/{bot_info.username}?start={code}"
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📤 Поделиться", url=f"https://t.me/share/url?url={url}")],
-                [InlineKeyboardButton("🔙 Назад", callback_data="back")]
-            ])
+    
+    elif data == "tasks":
+        query.edit_message_text(
+            "📋 <b>ВЫБЕРИ ЗАДАНИЕ</b>\n\n"
+            "Нажми на задание → перейди по ссылке → вернись и нажми «Проверить»\n\n"
+            "✅ <b>Выполненные задания отмечены галочкой</b>\n"
+            "❌ <b>Новые задания ждут тебя!</b>",
+            parse_mode="HTML",
+            reply_markup=tasks_keyboard(uid)
+        )
+    
+    elif data.startswith("task_"):
+        task_id = int(data.split("_")[1])
+        task = next((t for t in TASKS if t["id"] == task_id), None)
+        if not task:
+            return
+        
+        if is_task_completed(uid, task_id):
             query.edit_message_text(
-                f"🔗 <b>Твоя ссылка</b>\n\n<code>{url}</code>\n\nПриглашай друзей!",
+                f"❌ <b>Ты уже выполнил это задание!</b>\n\n"
+                f"{task['name']}\n"
+                f"💰 Награда: {task['reward']} ₽ (уже получена)",
                 parse_mode="HTML",
-                reply_markup=keyboard
+                reply_markup=tasks_keyboard(uid)
             )
-    elif data == "referrals":
-        conn = sqlite3.connect('referral_bot.db')
-        c = conn.cursor()
-        c.execute("SELECT username FROM users WHERE referrer_id = ?", (uid,))
-        rows = c.fetchall()
-        conn.close()
-        if not rows:
-            query.edit_message_text("👥 У тебя пока нет рефералов.", reply_markup=main_keyboard(uid))
-        else:
-            text = f"👥 <b>Твои рефералы ({len(rows)})</b>\n\n"
-            for i, r in enumerate(rows, 1):
-                text += f"{i}. @{r[0] or 'скрыто'}\n"
-            query.edit_message_text(text, parse_mode="HTML", reply_markup=main_keyboard(uid))
-    elif data == "top":
-        conn = sqlite3.connect('referral_bot.db')
-        c = conn.cursor()
-        c.execute("SELECT username, referrals_count FROM users WHERE referrals_count > 0 ORDER BY referrals_count DESC LIMIT 10")
-        rows = c.fetchall()
-        conn.close()
-        if not rows:
-            query.edit_message_text("🏆 Пока нет рефералов в топе.", reply_markup=main_keyboard(uid))
-        else:
-            text = "🏆 <b>Топ рефералов</b>\n\n"
-            for i, (username, count) in enumerate(rows, 1):
-                text += f"{i}. @{username or 'anon'} — {count} рефералов\n"
-            query.edit_message_text(text, parse_mode="HTML", reply_markup=main_keyboard(uid))
+            return
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔗 ПЕРЕЙТИ К ЗАДАНИЮ", url=task['url'])],
+            [InlineKeyboardButton("✅ ПРОВЕРИТЬ ВЫПОЛНЕНИЕ", callback_data=f"check_{task_id}")],
+            [InlineKeyboardButton("🔙 Назад к заданиям", callback_data="tasks")]
+        ])
+        query.edit_message_text(
+            f"📌 <b>{task['name']}</b>\n\n"
+            f"💰 Награда: {task['reward']} ₽\n\n"
+            f"📝 <b>Инструкция:</b>\n"
+            f"1. Нажми «Перейти к заданию»\n"
+            f"2. Выполни действие (подпишись/поставь лайк)\n"
+            f"3. Вернись в бота и нажми «Проверить выполнение»\n\n"
+            f"⚠️ <i>Бот проверяет выполнение автоматически!</i>",
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+    
+    elif data.startswith("check_"):
+        task_id = int(data.split("_")[1])
+        task = next((t for t in TASKS if t["id"] == task_id), None)
+        if not task:
+            return
+        
+        if is_task_completed(uid, task_id):
+            query.edit_message_text(
+                f"❌ <b>Ты уже получил награду за это задание!</b>",
+                parse_mode="HTML",
+                reply_markup=tasks_keyboard(uid)
+            )
+            return
+        
+        # Отмечаем задание как выполненное и начисляем награду
+        mark_task_completed(uid, task_id)
+        update_balance(uid, task['reward'])
+        
+        query.edit_message_text(
+            f"✅ <b>ЗАДАНИЕ ВЫПОЛНЕНО!</b>\n\n"
+            f"📌 {task['name']}\n"
+            f"💰 Начислено: +{task['reward']} ₽\n\n"
+            f"🎉 Продолжай выполнять задания и зарабатывай больше!",
+            parse_mode="HTML",
+            reply_markup=tasks_keyboard(uid)
+        )
+    
     elif data == "daily":
         if can_claim_daily(uid):
             claim_daily(uid)
-            query.edit_message_text(f"🎁 Ежедневный бонус +{DAILY_BONUS} ₽", reply_markup=main_keyboard(uid))
+            query.edit_message_text(
+                f"🎁 <b>ЕЖЕДНЕВНЫЙ БОНУС ПОЛУЧЕН!</b>\n\n"
+                f"💰 +{DAILY_BONUS} ₽ на баланс\n\n"
+                f"📅 Заходи завтра снова!",
+                parse_mode="HTML",
+                reply_markup=main_keyboard(uid)
+            )
         else:
-            query.edit_message_text("❌ Бонус уже получен сегодня. Заходи завтра!", reply_markup=main_keyboard(uid))
-    elif data == "promo":
-        query.edit_message_text(
-            "🎟 <b>Введи промокод</b>\n\n"
-            "Доступные:\nSTART2025 (50₽), BONUS100 (100₽), FRIEND2025 (75₽)\n\n"
-            "Напиши код в чат:",
-            parse_mode="HTML"
-        )
-        context.user_data['awaiting_promo'] = True
+            query.edit_message_text(
+                "❌ <b>Ты уже получал бонус сегодня!</b>\n\n"
+                "📅 Возвращайся завтра за новым бонусом.",
+                parse_mode="HTML",
+                reply_markup=main_keyboard(uid)
+            )
+    
     elif data == "withdraw":
-        balance = row[4] if row else 0
+        balance = row[2] if row else 0
         if balance < MIN_WITHDRAW:
-            query.answer(f"❌ Минимум {MIN_WITHDRAW} ₽. У тебя {balance} ₽", show_alert=True)
+            query.answer(f"❌ Минимум для вывода: {MIN_WITHDRAW} ₽. Твой баланс: {balance} ₽", show_alert=True)
             return
         query.edit_message_text(
-            f"✅ <b>Заявка отправлена!</b>\n\nСумма: {balance} ₽\nАдмин свяжется с тобой.",
+            f"✅ <b>ЗАЯВКА НА ВЫВОД ОТПРАВЛЕНА!</b>\n\n"
+            f"💰 Сумма: {balance} ₽\n"
+            f"📝 Администратор свяжется с тобой в ближайшее время.\n\n"
+            f"💬 Для ускорения напиши админу: @mskvoru",
             parse_mode="HTML",
             reply_markup=main_keyboard(uid)
         )
+    
     elif data == "stats":
-        total_users, total_earned, total_balance, total_refs = get_stats()
-        balance = row[4] if row else 0
-        earned = row[5] if row else 0
-        refs = row[6] if row else 0
+        balance = row[2] if row else 0
+        earned = row[3] if row else 0
+        tasks_done = get_completed_count(uid)
+        joined = row[6] if row else "—"
+        total_users, total_earned, total_balance = get_stats()
         query.edit_message_text(
-            f"📊 <b>Твоя статистика</b>\n\n"
-            f"👥 Рефералов: {refs}\n"
+            f"📊 <b>ТВОЯ СТАТИСТИКА</b>\n\n"
+            f"👥 Рефералов: 0\n"
             f"💰 Заработано: {earned} ₽\n"
-            f"💳 Доступно: {balance} ₽\n\n"
-            f"📈 <b>Общая статистика</b>\n"
+            f"💳 Доступно: {balance} ₽\n"
+            f"✅ Выполнено заданий: {tasks_done}\n"
+            f"📅 В системе с: {joined[:10]}\n\n"
+            f"📈 <b>ОБЩАЯ СТАТИСТИКА БОТА</b>\n"
             f"👤 Пользователей: {total_users}\n"
-            f"💰 Всего заработано: {total_earned} ₽",
+            f"💰 Всего заработано: {total_earned} ₽\n"
+            f"💳 На балансе у всех: {total_balance} ₽",
             parse_mode="HTML",
             reply_markup=main_keyboard(uid)
         )
+    
     elif data == "support":
         query.edit_message_text(
-            "❓ <b>Поддержка</b>\n\nСвяжись с админом: @mskvoru",
+            "❓ <b>ПОДДЕРЖКА</b>\n\n"
+            "По всем вопросам:\n"
+            "• Вывод средств\n"
+            "• Проблемы с заданиями\n"
+            "• Сотрудничество\n\n"
+            "👨‍💻 <b>Свяжись с админом:</b> @mskvoru\n\n"
+            "📌 <i>Обычно ответ приходит в течение нескольких часов</i>",
             parse_mode="HTML",
             reply_markup=main_keyboard(uid)
         )
+    
+    elif data == "back":
+        query.edit_message_text(
+            "🤝 <b>ГЛАВНОЕ МЕНЮ</b>",
+            parse_mode="HTML",
+            reply_markup=main_keyboard(uid)
+        )
+    
+    # ==================== АДМИН-ПАНЕЛЬ ====================
     elif data == "admin_login":
         query.edit_message_text("🔐 <b>Введите пароль:</b>", parse_mode="HTML")
         context.user_data['awaiting_admin_password'] = True
-    elif data == "back":
-        query.edit_message_text("Главное меню:", reply_markup=main_keyboard(uid))
+    
     elif data.startswith("admin_"):
         if not context.user_data.get('admin_logged_in', False):
             query.edit_message_text("❌ Нет доступа. Войдите в админ-панель.", reply_markup=main_keyboard(uid))
             return
         
         if data == "admin_give":
-            query.edit_message_text("💰 Введи: /give ID сумма\nПример: /give 6127276408 100", parse_mode="HTML")
-        elif data == "admin_take":
-            query.edit_message_text("💸 Введи: /take ID сумма\nПример: /take 6127276408 50", parse_mode="HTML")
+            query.edit_message_text(
+                "💰 <b>Выдать деньги</b>\n\n"
+                "Введи команду:\n"
+                "<code>/give ID сумма</code>\n\n"
+                "Пример: <code>/give 6127276408 100</code>",
+                parse_mode="HTML"
+            )
         elif data == "admin_broadcast":
-            query.edit_message_text("📢 Введи: /broadcast текст", parse_mode="HTML")
+            query.edit_message_text(
+                "📢 <b>Рассылка</b>\n\n"
+                "Введи команду:\n"
+                "<code>/broadcast текст</code>\n\n"
+                "Пример: <code>/broadcast Всем привет!</code>",
+                parse_mode="HTML"
+            )
         elif data == "admin_users":
             users = get_all_users()
             if not users:
-                query.edit_message_text("Нет пользователей")
+                query.edit_message_text("❌ Нет пользователей")
                 return
-            text = "👥 <b>Пользователи:</b>\n\n"
+            text = "👥 <b>СПИСОК ПОЛЬЗОВАТЕЛЕЙ</b>\n\n"
             for u in users[:20]:
-                text += f"@{u[1] or u[0]} | 💰 {u[2]} ₽ | 👥 {u[4]}\n"
+                text += f"@{u[1] or u[0]} | 💰 {u[2]} ₽ | 💸 {u[3]} ₽\n"
+            if len(users) > 20:
+                text += f"\n... и ещё {len(users) - 20} пользователей"
             query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_keyboard())
         elif data == "admin_stats":
-            total_users, total_earned, total_balance, total_refs = get_stats()
-            text = f"📊 Статистика:\n👥 {total_users} юзеров\n💰 Заработано: {total_earned} ₽\n💳 На балансе: {total_balance} ₽\n👥 Рефералов: {total_refs}"
-            query.edit_message_text(text, reply_markup=admin_keyboard())
+            total_users, total_earned, total_balance = get_stats()
+            text = (
+                f"📊 <b>СТАТИСТИКА БОТА</b>\n\n"
+                f"👥 Пользователей: {total_users}\n"
+                f"💰 Всего заработали: {total_earned} ₽\n"
+                f"💳 На балансе: {total_balance} ₽"
+            )
+            query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_keyboard())
         elif data == "admin_bonus_all":
-            query.edit_message_text("🎁 Введи: /bonus_all сумма", parse_mode="HTML")
-        elif data == "admin_create_promo":
-            query.edit_message_text("🎟 Введи: /create_promo КОД сумма\nПример: /create_promo SUPER2025 200", parse_mode="HTML")
+            query.edit_message_text(
+                "🎁 <b>Бонус всем пользователям</b>\n\n"
+                "Введи команду:\n"
+                "<code>/bonus_all сумма</code>\n\n"
+                "Пример: <code>/bonus_all 10</code>",
+                parse_mode="HTML"
+            )
+        elif data == "admin_add_task":
+            query.edit_message_text(
+                "📝 <b>Добавить задание</b>\n\n"
+                "Введи команду:\n"
+                "<code>/add_task название | ссылка | награда</code>\n\n"
+                "Пример:\n"
+                "<code>/add_task Подпишись на канал | https://t.me/example | 10</code>",
+                parse_mode="HTML"
+            )
         elif data == "admin_close":
             context.user_data['admin_logged_in'] = False
-            query.edit_message_text("Админ-панель закрыта", reply_markup=main_keyboard(uid))
+            query.edit_message_text("🔐 Админ-панель закрыта", reply_markup=main_keyboard(uid))
 
 def handle_message(update: Update, context):
     user_id = update.effective_user.id
     text = update.message.text.strip()
     
+    # Проверка пароля админа
     if context.user_data.get('awaiting_admin_password'):
         if text == ADMIN_PASSWORD:
             context.user_data['admin_logged_in'] = True
             context.user_data['awaiting_admin_password'] = False
-            update.message.reply_text("✅ Доступ разрешён!", reply_markup=admin_keyboard())
+            update.message.reply_text("✅ <b>Доступ разрешён!</b>\n\nДобро пожаловать в админ-панель.", parse_mode="HTML", reply_markup=admin_keyboard())
         else:
             context.user_data['awaiting_admin_password'] = False
-            update.message.reply_text("❌ Неверный пароль!", reply_markup=main_keyboard(user_id))
+            update.message.reply_text("❌ <b>Неверный пароль!</b>", parse_mode="HTML", reply_markup=main_keyboard(user_id))
         return
     
-    if context.user_data.get('awaiting_promo'):
-        code = text.upper()
-        success, amount = apply_promo(user_id, code)
-        if success:
-            update.message.reply_text(f"✅ Промокод активирован! +{amount} ₽", reply_markup=main_keyboard(user_id))
-        else:
-            update.message.reply_text(f"❌ Неверный промокод: {code}", reply_markup=main_keyboard(user_id))
-        context.user_data['awaiting_promo'] = False
+    # Если команда начинается с / — обрабатывается отдельно
+    if text.startswith('/'):
         return
     
-    update.message.reply_text("Используй кнопки меню 👇", reply_markup=main_keyboard(user_id))
+    update.message.reply_text("🤝 Используй кнопки меню 👇", reply_markup=main_keyboard(user_id))
 
 # ==================== АДМИН-КОМАНДЫ ====================
 def give_command(update: Update, context):
-    if update.effective_user.id != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID and not context.user_data.get('admin_logged_in', False):
         update.message.reply_text("❌ Нет доступа")
         return
     try:
@@ -389,27 +470,15 @@ def give_command(update: Update, context):
         amount = int(context.args[1])
         admin_send_money(user_id, amount)
         update.message.reply_text(f"✅ Выдано {amount} ₽ пользователю {user_id}")
-        context.bot.send_message(user_id, f"🎉 Админ начислил тебе {amount} ₽!")
+        try:
+            update.context.bot.send_message(user_id, f"🎉 Администратор начислил тебе {amount} ₽!")
+        except:
+            pass
     except:
         update.message.reply_text("❌ Используй: /give ID сумма")
 
-def take_command(update: Update, context):
-    if update.effective_user.id != ADMIN_ID:
-        update.message.reply_text("❌ Нет доступа")
-        return
-    try:
-        user_id = int(context.args[0])
-        amount = int(context.args[1])
-        if admin_take_money(user_id, amount):
-            update.message.reply_text(f"✅ Забрано {amount} ₽ у {user_id}")
-            context.bot.send_message(user_id, f"⚠️ С твоего баланса списано {amount} ₽")
-        else:
-            update.message.reply_text("❌ Недостаточно средств или пользователь не найден")
-    except:
-        update.message.reply_text("❌ Используй: /take ID сумма")
-
 def broadcast_command(update: Update, context):
-    if update.effective_user.id != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID and not context.user_data.get('admin_logged_in', False):
         update.message.reply_text("❌ Нет доступа")
         return
     if not context.args:
@@ -420,14 +489,14 @@ def broadcast_command(update: Update, context):
     success = 0
     for user in users:
         try:
-            context.bot.send_message(user[0], f"📢 {text}")
+            update.context.bot.send_message(user[0], f"📢 {text}")
             success += 1
         except:
             pass
     update.message.reply_text(f"✅ Рассылка отправлена {success} пользователям")
 
 def bonus_all_command(update: Update, context):
-    if update.effective_user.id != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID and not context.user_data.get('admin_logged_in', False):
         update.message.reply_text("❌ Нет доступа")
         return
     try:
@@ -437,7 +506,7 @@ def bonus_all_command(update: Update, context):
         for user in users:
             try:
                 admin_send_money(user[0], amount)
-                context.bot.send_message(user[0], f"🎁 Бонус всем! +{amount} ₽")
+                update.context.bot.send_message(user[0], f"🎁 Бонус всем! +{amount} ₽")
                 success += 1
             except:
                 pass
@@ -445,21 +514,29 @@ def bonus_all_command(update: Update, context):
     except:
         update.message.reply_text("❌ Используй: /bonus_all сумма")
 
-def create_promo_command(update: Update, context):
-    if update.effective_user.id != ADMIN_ID:
+def add_task_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID and not context.user_data.get('admin_logged_in', False):
         update.message.reply_text("❌ Нет доступа")
         return
     try:
-        code = context.args[0].upper()
-        amount = int(context.args[1])
-        PROMO_CODES[code] = amount
-        update.message.reply_text(f"✅ Промокод {code} на {amount} ₽ создан!")
+        text = ' '.join(context.args)
+        parts = text.split('|')
+        if len(parts) != 3:
+            update.message.reply_text("❌ Используй: /add_task название | ссылка | награда")
+            return
+        name = parts[0].strip()
+        url = parts[1].strip()
+        reward = int(parts[2].strip())
+        new_id = max([t["id"] for t in TASKS], default=0) + 1
+        TASKS.append({"id": new_id, "name": name, "url": url, "reward": reward})
+        update.message.reply_text(f"✅ Задание добавлено!\n\n{name}\n💰 Награда: {reward} ₽\n🔗 {url}")
     except:
-        update.message.reply_text("❌ Используй: /create_promo КОД сумма")
+        update.message.reply_text("❌ Ошибка. Используй: /add_task название | ссылка | награда")
 
 def id_command(update: Update, context):
-    update.message.reply_text(f"🆔 Твой ID: {update.effective_user.id}")
+    update.message.reply_text(f"🆔 <b>Твой ID:</b> <code>{update.effective_user.id}</code>", parse_mode="HTML")
 
+# ==================== ЗАПУСК ====================
 if __name__ == "__main__":
     init_db()
     Thread(target=run_flask).start()
@@ -470,13 +547,12 @@ if __name__ == "__main__":
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("id", id_command))
     dp.add_handler(CommandHandler("give", give_command))
-    dp.add_handler(CommandHandler("take", take_command))
     dp.add_handler(CommandHandler("broadcast", broadcast_command))
     dp.add_handler(CommandHandler("bonus_all", bonus_all_command))
-    dp.add_handler(CommandHandler("create_promo", create_promo_command))
+    dp.add_handler(CommandHandler("add_task", add_task_command))
     dp.add_handler(CallbackQueryHandler(button_handler))
     dp.add_handler(MessageHandler(Filters.text, handle_message))
     
     updater.start_polling()
-    print("Бот запущен!")
+    print("🚀 Бот для заработка на заданиях запущен!")
     updater.idle()
