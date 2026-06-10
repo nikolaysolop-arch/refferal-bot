@@ -1,18 +1,29 @@
 import sqlite3
 import random
 import string
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Thread
 from flask import Flask
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, PreCheckoutQueryHandler
 
 BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_ID = 6127276408
+PROVIDER_TOKEN = "ВАШ_ТОКЕН_ПРОДАЙЦА"  # Вставьте токен от BotFather
 
-DAILY_BONUS = 5
-MIN_WITHDRAW = 200
 REQUIRED_CHANNEL = "@prof1t_77"
+
+# Настройки для обычных пользователей
+NORMAL_TASK_REWARD = 10
+NORMAL_DAILY_BONUS = 5
+NORMAL_MIN_WITHDRAW = 200
+
+# Настройки для PRO-подписчиков
+PRO_TASK_REWARD = 20
+PRO_DAILY_BONUS = 15
+PRO_MIN_WITHDRAW = 100
+
+PRO_PRICE_STARS = 100
 
 TASKS = []
 
@@ -35,7 +46,8 @@ def init_db():
                   total_earned INTEGER DEFAULT 0,
                   completed_tasks TEXT DEFAULT '',
                   last_daily TEXT,
-                  joined_date TEXT)''')
+                  joined_date TEXT,
+                  pro_until TEXT)''')
     conn.commit()
     conn.close()
 
@@ -99,17 +111,21 @@ def can_claim_daily(user_id):
     return datetime.now().date() > last.date()
 
 def claim_daily(user_id):
+    is_pro = check_pro_status(user_id)
+    bonus = PRO_DAILY_BONUS if is_pro else NORMAL_DAILY_BONUS
+    
     conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
     c.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (datetime.now().strftime('%Y-%m-%d'), user_id))
     conn.commit()
     conn.close()
-    update_balance(user_id, DAILY_BONUS)
+    update_balance(user_id, bonus)
+    return bonus
 
 def get_all_users():
     conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
-    c.execute("SELECT user_id, username, balance, total_earned FROM users")
+    c.execute("SELECT user_id, username, balance, total_earned, pro_until FROM users")
     rows = c.fetchall()
     conn.close()
     return rows
@@ -140,12 +156,45 @@ def check_subscription(bot, user_id, channel_username):
     except:
         return False
 
-def get_main_keyboard():
+def check_pro_status(user_id):
+    row = get_user(user_id)
+    if not row or not row[7]:
+        return False
+    pro_until = datetime.strptime(row[7], '%Y-%m-%d')
+    return datetime.now() < pro_until
+
+def get_task_reward(user_id, base_reward):
+    return base_reward * 2 if check_pro_status(user_id) else base_reward
+
+def get_min_withdraw(user_id):
+    return PRO_MIN_WITHDRAW if check_pro_status(user_id) else NORMAL_MIN_WITHDRAW
+
+def activate_pro(user_id, days=30):
+    new_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
+    conn = sqlite3.connect('task_bot.db')
+    c = conn.cursor()
+    c.execute("UPDATE users SET pro_until = ? WHERE user_id = ?", (new_date, user_id))
+    conn.commit()
+    conn.close()
+
+def deactivate_pro(user_id):
+    conn = sqlite3.connect('task_bot.db')
+    c = conn.cursor()
+    c.execute("UPDATE users SET pro_until = NULL WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_main_keyboard(user_id):
+    row = get_user(user_id)
+    balance = row[2] if row else 0
+    is_pro = check_pro_status(user_id)
+    pro_badge = " 👑 PRO" if is_pro else ""
+    
     keyboard = [
-        [KeyboardButton("💰 Баланс"), KeyboardButton("📋 Задания")],
+        [KeyboardButton(f"💰 Баланс{pro_badge}"), KeyboardButton("📋 Задания")],
         [KeyboardButton("🎁 Бонус"), KeyboardButton("💸 Вывод")],
         [KeyboardButton("📊 Статистика"), KeyboardButton("❓ Помощь")],
-        [KeyboardButton("⚡ Админ")]
+        [KeyboardButton("💎 PRO Подписка"), KeyboardButton("⚡ Админ")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -154,7 +203,8 @@ def tasks_keyboard(user_id):
     for task in TASKS:
         completed = is_task_completed(user_id, task["id"])
         status = "✅" if completed else "❌"
-        keyboard.append([InlineKeyboardButton(f"{status} {task['name']} | +{task['reward']} ₽", callback_data=f"task_{task['id']}")])
+        reward = get_task_reward(user_id, task["reward"])
+        keyboard.append([InlineKeyboardButton(f"{status} {task['name']} | +{reward} ₽", callback_data=f"task_{task['id']}")])
     keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_tasks")])
     return InlineKeyboardMarkup(keyboard)
 
@@ -166,6 +216,8 @@ def admin_inline_keyboard():
         [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats")],
         [InlineKeyboardButton("🎁 Бонус всем", callback_data="admin_bonus_all")],
         [InlineKeyboardButton("📝 Добавить задание", callback_data="admin_add_task")],
+        [InlineKeyboardButton("👑 Включить PRO", callback_data="admin_pro_on")],
+        [InlineKeyboardButton("👑 Выключить PRO", callback_data="admin_pro_off")],
         [InlineKeyboardButton("🔒 Закрыть", callback_data="admin_close")]
     ])
 
@@ -191,6 +243,9 @@ def start(update: Update, context):
         create_user(uid, name)
         update_balance(uid, 10)
     
+    is_pro = check_pro_status(uid)
+    pro_text = "\n\n👑 У тебя PRO-подписка! Награды увеличены!" if is_pro else "\n\n💎 Оформи PRO-подписку за 100 Stars и получай увеличенные награды!"
+    
     welcome_text = f"""✨ <b>Привет, {name}!</b> ✨
 
 Это бот для заработка на заданиях.
@@ -198,13 +253,13 @@ def start(update: Update, context):
 🔥 <b>Как заработать:</b>
 • Выполняй задания (подписки на каналы)
 • Забирай ежедневный бонус
-• Выводи деньги от {MIN_WITHDRAW} ₽
+• Выводи деньги от {get_min_withdraw(uid)} ₽
 
-🎁 <b>Бонус:</b> +10 ₽ за регистрацию
+🎁 <b>Бонус:</b> +10 ₽ за регистрацию{pro_text}
 
-👇 <b>Нажми «Задания» и начни зарабатывать!</b>"""
+👇 <b>Нажми на кнопки внизу и зарабатывай!</b>"""
     
-    update.message.reply_text(welcome_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+    update.message.reply_text(welcome_text, parse_mode="HTML", reply_markup=get_main_keyboard(uid))
 
 def check_subscription_callback(update: Update, context):
     query = update.callback_query
@@ -217,6 +272,9 @@ def check_subscription_callback(update: Update, context):
             create_user(uid, name)
             update_balance(uid, 10)
         
+        is_pro = check_pro_status(uid)
+        pro_text = "\n\n👑 У тебя PRO-подписка! Награды увеличены!" if is_pro else "\n\n💎 Оформи PRO-подписку за 100 Stars и получай увеличенные награды!"
+        
         welcome_text = f"""✨ <b>Привет, {name}!</b> ✨
 
 Это бот для заработка на заданиях.
@@ -224,13 +282,13 @@ def check_subscription_callback(update: Update, context):
 🔥 <b>Как заработать:</b>
 • Выполняй задания (подписки на каналы)
 • Забирай ежедневный бонус
-• Выводи деньги от {MIN_WITHDRAW} ₽
+• Выводи деньги от {get_min_withdraw(uid)} ₽
 
-🎁 <b>Бонус:</b> +10 ₽ за регистрацию
+🎁 <b>Бонус:</b> +10 ₽ за регистрацию{pro_text}
 
-👇 <b>Нажми «Задания» и начни зарабатывать!</b>"""
+👇 <b>Нажми на кнопки внизу и зарабатывай!</b>"""
         
-        query.edit_message_text(welcome_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+        query.edit_message_text(welcome_text, parse_mode="HTML", reply_markup=get_main_keyboard(uid))
     else:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔗 ПОДПИСАТЬСЯ НА КАНАЛ", url="https://t.me/prof1t_77")],
@@ -243,6 +301,52 @@ def check_subscription_callback(update: Update, context):
             parse_mode="HTML",
             reply_markup=keyboard
         )
+
+def pro_payment(update: Update, context):
+    uid = update.effective_user.id
+    
+    if check_pro_status(uid):
+        update.message.reply_text("👑 У тебя уже активна PRO-подписка!", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
+        return
+    
+    prices = [LabeledPrice(label="PRO-подписка на 30 дней", amount=PRO_PRICE_STARS * 100)]
+    
+    try:
+        update.message.reply_invoice(
+            title="💎 PRO Подписка",
+            description="Увеличенные награды + повышенный бонус + сниженный минимум вывода на 30 дней",
+            payload="pro_subscription",
+            provider_token=PROVIDER_TOKEN,
+            currency="XTR",
+            prices=prices,
+            start_parameter="pro_sub",
+            need_name=False,
+            need_phone_number=False,
+            need_email=False
+        )
+    except Exception as e:
+        update.message.reply_text(f"❌ Ошибка при оплате: {e}\n\nПроверь настройки платежей в BotFather.", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
+
+def pre_checkout(update: Update, context):
+    query = update.pre_checkout_query
+    if query.invoice_payload == "pro_subscription":
+        query.answer(ok=True)
+    else:
+        query.answer(ok=False, error_message="Что-то пошло не так")
+
+def successful_payment(update: Update, context):
+    uid = update.effective_user.id
+    activate_pro(uid, 30)
+    update.message.reply_text(
+        "✅ <b>Поздравляю! PRO-подписка активирована на 30 дней!</b>\n\n"
+        "👑 Теперь ты получаешь:\n"
+        f"• Увеличенные награды за задания (в 2 раза)\n"
+        f"• Ежедневный бонус {PRO_DAILY_BONUS} ₽ (было {NORMAL_DAILY_BONUS})\n"
+        f"• Минимум вывода {PRO_MIN_WITHDRAW} ₽ (было {NORMAL_MIN_WITHDRAW})\n\n"
+        "Спасибо за поддержку! 🎉",
+        parse_mode="HTML",
+        reply_markup=get_main_keyboard(uid)
+    )
 
 def handle_buttons(update: Update, context):
     text = update.message.text
@@ -263,68 +367,92 @@ def handle_buttons(update: Update, context):
         return
     
     row = get_user(uid)
+    is_pro = check_pro_status(uid)
+    pro_badge = " 👑" if is_pro else ""
     
-    if text == "💰 Баланс":
+    if text == f"💰 Баланс{pro_badge}" or text == "💰 Баланс":
         balance = row[2] if row else 0
         earned = row[3] if row else 0
         tasks_done = get_completed_count(uid)
+        min_withdraw = get_min_withdraw(uid)
         update.message.reply_text(
-            f"💰 <b>Твой баланс</b>\n\n"
+            f"💰 <b>Твой баланс</b>{' 👑 PRO' if is_pro else ''}\n\n"
             f"Доступно: {balance} ₽\n"
             f"Заработано: {earned} ₽\n"
             f"Выполнено заданий: {tasks_done}\n\n"
-            f"⚡ Минимум вывода: {MIN_WITHDRAW} ₽",
+            f"⚡ Минимум вывода: {min_withdraw} ₽",
             parse_mode="HTML",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(uid)
         )
     
     elif text == "📋 Задания":
         if not TASKS:
-            update.message.reply_text("📋 <b>Заданий пока нет.</b>\n\nОни скоро появятся. Загляни позже!", parse_mode="HTML", reply_markup=get_main_keyboard())
+            update.message.reply_text("📋 <b>Заданий пока нет.</b>\n\nОни скоро появятся. Загляни позже!", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
             return
-        update.message.reply_text("📋 <b>Доступные задания</b>\n\nНажми на задание → перейди по ссылке → подпишись → нажми «Проверить»", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
+        update.message.reply_text("📋 <b>Доступные задания</b>\n\nНажми на задание → перейди по ссылке → подпишись → нажми «Проверить»\n\n👑 PRO-подписчики получают x2 награду!", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
     
     elif text == "🎁 Бонус":
         if can_claim_daily(uid):
-            claim_daily(uid)
-            update.message.reply_text(f"🎁 <b>Бонус получен!</b>\n\n+{DAILY_BONUS} ₽ на баланс\n\nЗаходи завтра снова.", parse_mode="HTML", reply_markup=get_main_keyboard())
+            bonus = claim_daily(uid)
+            update.message.reply_text(f"🎁 <b>Бонус получен!</b>\n\n+{bonus} ₽ на баланс\n\nЗаходи завтра снова.", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
         else:
-            update.message.reply_text("❌ <b>Ты уже получал бонус сегодня</b>\n\nВозвращайся завтра.", parse_mode="HTML", reply_markup=get_main_keyboard())
+            update.message.reply_text("❌ <b>Ты уже получал бонус сегодня</b>\n\nВозвращайся завтра.", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
     
     elif text == "💸 Вывод":
         balance = row[2] if row else 0
-        if balance < MIN_WITHDRAW:
-            update.message.reply_text(f"❌ <b>Недостаточно средств</b>\n\nТвой баланс: {balance} ₽\nНужно: {MIN_WITHDRAW} ₽\n\nВыполняй задания, чтобы накопить нужную сумму.", parse_mode="HTML", reply_markup=get_main_keyboard())
+        min_withdraw = get_min_withdraw(uid)
+        if balance < min_withdraw:
+            update.message.reply_text(f"❌ <b>Недостаточно средств</b>\n\nТвой баланс: {balance} ₽\nНужно: {min_withdraw} ₽\n\nВыполняй задания, чтобы накопить нужную сумму.", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
             return
-        update.message.reply_text(f"✅ <b>Заявка на вывод отправлена</b>\n\nСумма: {balance} ₽\n\nАдминистратор свяжется с тобой.\n\nПо вопросам: @n1kolay0_0", parse_mode="HTML", reply_markup=get_main_keyboard())
+        update.message.reply_text(f"✅ <b>Заявка на вывод отправлена</b>\n\nСумма: {balance} ₽\n\nАдминистратор свяжется с тобой.\n\nПо вопросам: @n1kolay0_0", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
     
     elif text == "📊 Статистика":
         balance = row[2] if row else 0
         earned = row[3] if row else 0
         tasks_done = get_completed_count(uid)
         joined = row[6] if row else "—"
+        pro_until = row[7] if row and row[7] else "—"
         total_users, total_earned, total_balance = get_stats()
         update.message.reply_text(
             f"📊 <b>Твоя статистика</b>\n\n"
             f"💰 Заработано: {earned} ₽\n"
             f"💳 Доступно: {balance} ₽\n"
             f"✅ Заданий: {tasks_done}\n"
-            f"📅 В системе с: {joined[:10]}\n\n"
+            f"📅 В системе с: {joined[:10]}\n"
+            f"👑 PRO до: {pro_until if pro_until != '—' else 'нет'}\n\n"
             f"📈 <b>Общая статистика</b>\n"
             f"👤 Пользователей: {total_users}\n"
             f"💰 Всего заработано: {total_earned} ₽",
             parse_mode="HTML",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(uid)
         )
     
     elif text == "❓ Помощь":
-        update.message.reply_text("❓ <b>Помощь</b>\n\nПо всем вопросам пиши админу:\n👨‍💻 @n1kolay0_0\n\nОбычно отвечаю в течение нескольких часов.", parse_mode="HTML", reply_markup=get_main_keyboard())
+        update.message.reply_text(
+            "❓ <b>Помощь</b>\n\n"
+            "По всем вопросам пиши админу:\n"
+            "👨‍💻 @n1kolay0_0\n\n"
+            "Обычно отвечаю в течение нескольких часов.",
+            parse_mode="HTML",
+            reply_markup=get_main_keyboard(uid)
+        )
+    
+    elif text == "💎 PRO Подписка":
+        if is_pro:
+            update.message.reply_text(
+                "👑 <b>У тебя уже есть PRO-подписка!</b>\n\n"
+                f"Действует до: {row[7]}\n\n"
+                "Спасибо за поддержку!",
+                parse_mode="HTML",
+                reply_markup=get_main_keyboard(uid)
+            )
+        else:
+            pro_payment(update, context)
     
     elif text == "⚡ Админ":
         if uid != ADMIN_ID:
-            update.message.reply_text("❌ <b>Нет доступа</b>\n\nЭта панель только для администратора.", parse_mode="HTML", reply_markup=get_main_keyboard())
+            update.message.reply_text("❌ <b>Нет доступа</b>\n\nЭта панель только для администратора.", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
             return
-        # Сразу открываем админ-панель без пароля
         update.message.reply_text(
             "✅ <b>АДМИН-ПАНЕЛЬ</b>\n\nДобро пожаловать!",
             parse_mode="HTML",
@@ -344,6 +472,9 @@ def button_handler(update: Update, context):
                 create_user(uid, name)
                 update_balance(uid, 10)
             
+            is_pro = check_pro_status(uid)
+            pro_text = "\n\n👑 У тебя PRO-подписка! Награды увеличены!" if is_pro else "\n\n💎 Оформи PRO-подписку за 100 Stars и получай увеличенные награды!"
+            
             welcome_text = f"""✨ <b>Привет, {name}!</b> ✨
 
 Это бот для заработка на заданиях.
@@ -351,13 +482,13 @@ def button_handler(update: Update, context):
 🔥 <b>Как заработать:</b>
 • Выполняй задания (подписки на каналы)
 • Забирай ежедневный бонус
-• Выводи деньги от {MIN_WITHDRAW} ₽
+• Выводи деньги от {get_min_withdraw(uid)} ₽
 
-🎁 <b>Бонус:</b> +10 ₽ за регистрацию
+🎁 <b>Бонус:</b> +10 ₽ за регистрацию{pro_text}
 
-👇 <b>Нажми «Задания» и начни зарабатывать!</b>"""
+👇 <b>Нажми на кнопки внизу и зарабатывай!</b>"""
             
-            query.edit_message_text(welcome_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+            query.edit_message_text(welcome_text, parse_mode="HTML", reply_markup=get_main_keyboard(uid))
         else:
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔗 ПОДПИСАТЬСЯ НА КАНАЛ", url="https://t.me/prof1t_77")],
@@ -379,15 +510,16 @@ def button_handler(update: Update, context):
             return
         
         if is_task_completed(uid, task_id):
-            query.edit_message_text(f"❌ <b>Задание уже выполнено</b>\n\n{task['name']}\nНаграда: {task['reward']} ₽ (уже получена)", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
+            query.edit_message_text(f"❌ <b>Задание уже выполнено</b>\n\n{task['name']}\nНаграда: {get_task_reward(uid, task['reward'])} ₽ (уже получена)", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
             return
         
+        reward = get_task_reward(uid, task['reward'])
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔗 Перейти к заданию", url=task['url'])],
             [InlineKeyboardButton("✅ Проверить", callback_data=f"check_{task_id}")],
             [InlineKeyboardButton("◀️ Назад", callback_data="back_tasks")]
         ])
-        query.edit_message_text(f"📌 <b>{task['name']}</b>\n\n💰 Награда: {task['reward']} ₽\n\n📝 Инструкция:\n1. Нажми «Перейти к заданию»\n2. Подпишись на канал/группу\n3. Вернись и нажми «Проверить»\n\n⚡ Бот проверит подписку автоматически.", parse_mode="HTML", reply_markup=keyboard)
+        query.edit_message_text(f"📌 <b>{task['name']}</b>\n\n💰 Награда: {reward} ₽\n\n📝 Инструкция:\n1. Нажми «Перейти к заданию»\n2. Подпишись на канал/группу\n3. Вернись и нажми «Проверить»\n\n⚡ Бот проверит подписку автоматически.", parse_mode="HTML", reply_markup=keyboard)
     
     elif data.startswith("check_"):
         task_id = int(data.split("_")[1])
@@ -407,24 +539,27 @@ def button_handler(update: Update, context):
             return
         
         mark_task_completed(uid, task_id)
-        update_balance(uid, task['reward'])
+        reward = get_task_reward(uid, task['reward'])
+        update_balance(uid, reward)
         
-        query.edit_message_text(f"✅ <b>Задание выполнено!</b>\n\n📌 {task['name']}\n💰 Начислено: +{task['reward']} ₽\n\n🎉 Спасибо! Продолжай выполнять задания.", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
+        query.edit_message_text(f"✅ <b>Задание выполнено!</b>\n\n📌 {task['name']}\n💰 Начислено: +{reward} ₽\n\n🎉 Спасибо! Продолжай выполнять задания.", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
     
     elif data == "back_tasks":
         query.edit_message_text("📋 <b>Доступные задания</b>", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
     
-    # Админ-панель (без пароля, только по ID)
+    # Админ-панель
     elif data == "admin_give":
         if uid != ADMIN_ID:
             query.edit_message_text("❌ Нет доступа")
             return
         query.edit_message_text("💰 <b>Выдать деньги</b>\n\n/give ID сумма\n\nПример: /give 6127276408 100", parse_mode="HTML")
+    
     elif data == "admin_broadcast":
         if uid != ADMIN_ID:
             query.edit_message_text("❌ Нет доступа")
             return
         query.edit_message_text("📢 <b>Рассылка</b>\n\n/broadcast текст\n\nПример: /broadcast Всем привет!", parse_mode="HTML")
+    
     elif data == "admin_users":
         if uid != ADMIN_ID:
             query.edit_message_text("❌ Нет доступа")
@@ -435,8 +570,10 @@ def button_handler(update: Update, context):
             return
         text = "👥 <b>Список пользователей</b>\n\n"
         for u in users[:20]:
-            text += f"@{u[1] or u[0]} | {u[2]} ₽\n"
+            pro = " 👑" if u[4] and datetime.now() < datetime.strptime(u[4], '%Y-%m-%d') else ""
+            text += f"@{u[1] or u[0]}{pro} | {u[2]} ₽\n"
         query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_inline_keyboard())
+    
     elif data == "admin_stats":
         if uid != ADMIN_ID:
             query.edit_message_text("❌ Нет доступа")
@@ -444,26 +581,90 @@ def button_handler(update: Update, context):
         total_users, total_earned, total_balance = get_stats()
         text = f"📊 <b>Статистика</b>\n\n👥 Пользователей: {total_users}\n💰 Заработано: {total_earned} ₽\n💳 На балансе: {total_balance} ₽"
         query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_inline_keyboard())
+    
     elif data == "admin_bonus_all":
         if uid != ADMIN_ID:
             query.edit_message_text("❌ Нет доступа")
             return
         query.edit_message_text("🎁 <b>Бонус всем</b>\n\n/bonus_all сумма\n\nПример: /bonus_all 10", parse_mode="HTML")
+    
     elif data == "admin_add_task":
         if uid != ADMIN_ID:
             query.edit_message_text("❌ Нет доступа")
             return
         query.edit_message_text("📝 <b>Добавить задание</b>\n\n/add_task название | @username | награда\n\nПример:\n/add_task Подпишись на канал | @example | 10", parse_mode="HTML")
+    
+    elif data == "admin_pro_on":
+        if uid != ADMIN_ID:
+            query.edit_message_text("❌ Нет доступа")
+            return
+        query.edit_message_text("👑 <b>Включить PRO-подписку</b>\n\n/pro_on ID\n\nПример: /pro_on 6127276408", parse_mode="HTML")
+    
+    elif data == "admin_pro_off":
+        if uid != ADMIN_ID:
+            query.edit_message_text("❌ Нет доступа")
+            return
+        query.edit_message_text("👑 <b>Выключить PRO-подписку</b>\n\n/pro_off ID\n\nПример: /pro_off 6127276408", parse_mode="HTML")
+    
     elif data == "admin_close":
         if uid != ADMIN_ID:
             query.edit_message_text("❌ Нет доступа")
             return
-        query.edit_message_text("🔒 Админ-панель закрыта", reply_markup=get_main_keyboard())
+        query.edit_message_text("🔒 Админ-панель закрыта", reply_markup=get_main_keyboard(uid))
 
-def handle_message(update: Update, context):
-    # Эта функция больше не нужна для пароля, но оставим для других сообщений
-    pass
+# ==================== АДМИН-КОМАНДЫ ДЛЯ PRO ====================
+def pro_on_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    try:
+        user_id = int(context.args[0])
+        if check_pro_status(user_id):
+            update.message.reply_text(f"👑 У пользователя {user_id} уже есть PRO-подписка")
+            return
+        activate_pro(user_id, 30)
+        update.message.reply_text(f"✅ PRO-подписка включена пользователю {user_id} на 30 дней")
+        try:
+            context.bot.send_message(user_id, "🎉 Администратор включил тебе PRO-подписку на 30 дней! 👑\n\nНаграды увеличены в 2 раза, ежедневный бонус теперь 15 ₽, минимум вывода 100 ₽!")
+        except:
+            pass
+    except:
+        update.message.reply_text("❌ Используй: /pro_on ID")
 
+def pro_off_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    try:
+        user_id = int(context.args[0])
+        if not check_pro_status(user_id):
+            update.message.reply_text(f"👑 У пользователя {user_id} нет PRO-подписки")
+            return
+        deactivate_pro(user_id)
+        update.message.reply_text(f"✅ PRO-подписка выключена пользователю {user_id}")
+        try:
+            context.bot.send_message(user_id, "⚠️ Администратор отключил PRO-подписку. Награды вернулись к обычному уровню.")
+        except:
+            pass
+    except:
+        update.message.reply_text("❌ Используй: /pro_off ID")
+
+def pro_status_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    try:
+        user_id = int(context.args[0])
+        is_pro = check_pro_status(user_id)
+        row = get_user(user_id)
+        if is_pro:
+            update.message.reply_text(f"👑 Пользователь {user_id} имеет PRO-подписку до {row[7]}")
+        else:
+            update.message.reply_text(f"👑 Пользователь {user_id} не имеет PRO-подписку")
+    except:
+        update.message.reply_text("❌ Используй: /pro_status ID")
+
+# ==================== ОСТАЛЬНЫЕ КОМАНДЫ ====================
 def give_command(update: Update, context):
     if update.effective_user.id != ADMIN_ID:
         update.message.reply_text("❌ Нет доступа")
@@ -533,12 +734,15 @@ def add_task_command(update: Update, context):
         url = f"https://t.me/{channel_username}"
         new_id = max([t["id"] for t in TASKS], default=0) + 1
         TASKS.append({"id": new_id, "name": name, "url": url, "reward": reward})
-        update.message.reply_text(f"✅ Задание добавлено!\n\n{name}\n{url}\n💰 {reward} ₽")
+        update.message.reply_text(f"✅ Задание добавлено!\n\n{name}\n{url}\n💰 {reward} ₽ (для PRO x2)")
     except:
         update.message.reply_text("❌ Ошибка. Используй: /add_task название | @username | награда")
 
 def id_command(update: Update, context):
-    update.message.reply_text(f"🆔 Твой ID: {update.effective_user.id}")
+    uid = update.effective_user.id
+    is_pro = check_pro_status(uid)
+    pro_text = " (PRO 👑)" if is_pro else ""
+    update.message.reply_text(f"🆔 Твой ID: {uid}{pro_text}")
 
 if __name__ == "__main__":
     init_db()
@@ -553,10 +757,15 @@ if __name__ == "__main__":
     dp.add_handler(CommandHandler("broadcast", broadcast_command))
     dp.add_handler(CommandHandler("bonus_all", bonus_all_command))
     dp.add_handler(CommandHandler("add_task", add_task_command))
+    dp.add_handler(CommandHandler("pro_on", pro_on_command))
+    dp.add_handler(CommandHandler("pro_off", pro_off_command))
+    dp.add_handler(CommandHandler("pro_status", pro_status_command))
     dp.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="check_sub"))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_buttons))
     dp.add_handler(CallbackQueryHandler(button_handler))
+    dp.add_handler(PreCheckoutQueryHandler(pre_checkout))
+    dp.add_handler(MessageHandler(Filters.successful_payment, successful_payment))
     
     updater.start_polling()
-    print("Бот запущен!")
+    print("Бот с PRO-подпиской и админ-управлением запущен!")
     updater.idle()
