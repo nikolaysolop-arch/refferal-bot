@@ -3,8 +3,8 @@ FROM python:3.9-slim
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir python-telegram-bot==13.7 flask
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY bot.py app.py ./
+COPY bot.py .
 
-CMD ["python", "app.py"]
+CMD ["python", "bot.py"]
