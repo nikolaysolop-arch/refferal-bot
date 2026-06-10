@@ -1,24 +1,23 @@
 import os
 from threading import Thread
 from flask import Flask
-from bot import bot, dp
-from aiogram.utils import executor
+from bot import app as telegram_app
 
-app = Flask(__name__)
+flask_app = Flask(__name__)
 
-@app.route('/')
+@flask_app.route('/')
 def index():
-    return "Реферальный бот работает!"
+    return "Referral bot is running!"
 
-@app.route('/health')
+@flask_app.route('/health')
 def health():
     return "OK"
 
 def run_bot():
-    executor.start_polling(dp, skip_updates=True)
+    telegram_app.run_polling()
 
 if __name__ == "__main__":
     bot_thread = Thread(target=run_bot)
     bot_thread.start()
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    flask_app.run(host='0.0.0.0', port=port)
