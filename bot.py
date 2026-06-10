@@ -2,11 +2,8 @@ import sqlite3
 import random
 import string
 from datetime import datetime
-
-from aiogram import Bot, Dispatcher, types
-from aiogram.contrib.middlewares.logging import LoggingMiddleware
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_ID = 6127276408
@@ -75,25 +72,21 @@ def add_referral(referrer_id):
 def main_keyboard(user_id):
     u = get_user(user_id)
     bal = u['balance'] if u else 0
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton(f"💰 Баланс: {bal:.2f} ₽", callback_data="bal"))
-    kb.add(InlineKeyboardButton("👥 Мои рефералы", callback_data="refs"))
-    kb.add(InlineKeyboardButton("🔗 Моя ссылка", callback_data="link"))
-    kb.add(InlineKeyboardButton("💸 Вывести", callback_data="out"))
-    kb.add(InlineKeyboardButton("📊 Статистика", callback_data="stat"))
-    return kb
+    keyboard = [
+        [InlineKeyboardButton(f"💰 Баланс: {bal:.2f} ₽", callback_data='bal')],
+        [InlineKeyboardButton("👥 Мои рефералы", callback_data='refs')],
+        [InlineKeyboardButton("🔗 Моя ссылка", callback_data='link')],
+        [InlineKeyboardButton("💸 Вывести", callback_data='out')],
+        [InlineKeyboardButton("📊 Статистика", callback_data='stat')]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
-dp.middleware.setup(LoggingMiddleware())
-
-@dp.message_handler(commands=['start'])
-async def start(msg: types.Message):
-    uid = msg.from_user.id
-    name = msg.from_user.username or msg.from_user.first_name
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    name = update.effective_user.username or update.effective_user.first_name
     ref_id = None
-    if ' ' in msg.text:
-        code = msg.text.split()[1]
+    if context.args:
+        code = context.args[0]
         conn = sqlite3.connect('referral_bot.db')
         c = conn.cursor()
         c.execute("SELECT user_id FROM users WHERE referral_code = ?", (code,))
@@ -107,67 +100,50 @@ async def start(msg: types.Message):
             update_balance(ref_id, REFERRAL_REWARD)
             add_referral(ref_id)
             update_balance(uid, REFERRED_REWARD)
-            await bot.send_message(ref_id, f"🎉 +{REFERRAL_REWARD} ₽ за реферала @{name}")
-            await msg.answer(f"🎉 Бонус {REFERRED_REWARD} ₽ за регистрацию!")
-    await msg.answer("🤝 Реферальный бот\n👇 Меню:", reply_markup=main_keyboard(uid))
+            await context.bot.send_message(ref_id, f"🎉 +{REFERRAL_REWARD} ₽ за реферала @{name}")
+            await update.message.reply_text(f"🎉 Бонус {REFERRED_REWARD} ₽ за регистрацию!")
+    await update.message.reply_text("🤝 Реферальный бот\n👇 Меню:", reply_markup=main_keyboard(uid))
 
-@dp.callback_query_handler(lambda c: c.data == "bal")
-async def bal(call: types.CallbackQuery):
-    u = get_user(call.from_user.id)
-    if u:
-        await call.message.edit_text(f"💰 Баланс: {u['balance']:.2f} ₽\nВсего: {u['total_earned']:.2f} ₽\nРефералов: {u['referrals_count']}", reply_markup=main_keyboard(call.from_user.id))
-    await call.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "link")
-async def link(call: types.CallbackQuery):
-    u = get_user(call.from_user.id)
-    me = await bot.get_me()
-    url = f"https://t.me/{me.username}?start={u['referral_code']}"
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("📤 Поделиться", url=f"https://t.me/share/url?url={url}"))
-    kb.add(InlineKeyboardButton("🔙 Назад", callback_data="menu"))
-    await call.message.edit_text(f"🔗 Твоя ссылка:\n<code>{url}</code>", parse_mode="HTML", reply_markup=kb)
-    await call.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "refs")
-async def refs(call: types.CallbackQuery):
-    u = get_user(call.from_user.id)
-    if u['referrals_count'] == 0:
-        await call.message.edit_text("👥 Нет рефералов", reply_markup=main_keyboard(call.from_user.id))
-        await call.answer()
-        return
-    conn = sqlite3.connect('referral_bot.db')
-    c = conn.cursor()
-    c.execute("SELECT username FROM users WHERE referrer_id = ? LIMIT 10", (call.from_user.id,))
-    rows = c.fetchall()
-    conn.close()
-    txt = f"👥 Рефералы ({u['referrals_count']}):\n"
-    for i, r in enumerate(rows, 1):
-        txt += f"{i}. @{r[0] or 'anon'}\n"
-    await call.message.edit_text(txt, reply_markup=main_keyboard(call.from_user.id))
-    await call.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "stat")
-async def stat(call: types.CallbackQuery):
-    u = get_user(call.from_user.id)
-    await call.message.edit_text(f"📊 Рефералов: {u['referrals_count']}\n💰 Заработано: {u['total_earned']:.2f} ₽\n💳 Доступно: {u['balance']:.2f} ₽", reply_markup=main_keyboard(call.from_user.id))
-    await call.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "out")
-async def out(call: types.CallbackQuery):
-    u = get_user(call.from_user.id)
-    if u['balance'] < MIN_WITHDRAW:
-        await call.answer(f"❌ Минимум {MIN_WITHDRAW} ₽", show_alert=True)
-        return
-    await bot.send_message(ADMIN_ID, f"💳 ЗАЯВКА\n@{call.from_user.username}\nСумма: {u['balance']:.2f} ₽")
-    await call.message.edit_text("✅ Заявка отправлена", reply_markup=main_keyboard(call.from_user.id))
-    await call.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "menu")
-async def back(call: types.CallbackQuery):
-    await call.message.edit_text("🤝 Главное меню:", reply_markup=main_keyboard(call.from_user.id))
-    await call.answer()
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    uid = query.from_user.id
+    u = get_user(uid)
+    
+    if data == 'bal':
+        await query.edit_message_text(f"💰 Баланс: {u['balance']:.2f} ₽\nВсего: {u['total_earned']:.2f} ₽\nРефералов: {u['referrals_count']}", reply_markup=main_keyboard(uid))
+    elif data == 'link':
+        url = f"https://t.me/{context.bot.username}?start={u['referral_code']}"
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📤 Поделиться", url=f"https://t.me/share/url?url={url}")], [InlineKeyboardButton("🔙 Назад", callback_data='menu')]])
+        await query.edit_message_text(f"🔗 Твоя ссылка:\n<code>{url}</code>", parse_mode='HTML', reply_markup=keyboard)
+    elif data == 'refs':
+        if u['referrals_count'] == 0:
+            await query.edit_message_text("👥 Нет рефералов", reply_markup=main_keyboard(uid))
+            return
+        conn = sqlite3.connect('referral_bot.db')
+        c = conn.cursor()
+        c.execute("SELECT username FROM users WHERE referrer_id = ? LIMIT 10", (uid,))
+        rows = c.fetchall()
+        conn.close()
+        txt = f"👥 Рефералы ({u['referrals_count']}):\n"
+        for i, r in enumerate(rows, 1):
+            txt += f"{i}. @{r[0] or 'anon'}\n"
+        await query.edit_message_text(txt, reply_markup=main_keyboard(uid))
+    elif data == 'stat':
+        await query.edit_message_text(f"📊 Рефералов: {u['referrals_count']}\n💰 Заработано: {u['total_earned']:.2f} ₽\n💳 Доступно: {u['balance']:.2f} ₽", reply_markup=main_keyboard(uid))
+    elif data == 'out':
+        if u['balance'] < MIN_WITHDRAW:
+            await query.answer(f"❌ Минимум {MIN_WITHDRAW} ₽", show_alert=True)
+            return
+        await context.bot.send_message(ADMIN_ID, f"💳 ЗАЯВКА\n@{query.from_user.username}\nСумма: {u['balance']:.2f} ₽")
+        await query.edit_message_text("✅ Заявка отправлена", reply_markup=main_keyboard(uid))
+    elif data == 'menu':
+        await query.edit_message_text("🤝 Главное меню:", reply_markup=main_keyboard(uid))
 
 if __name__ == "__main__":
     init_db()
-    executor.start_polling(dp, skip_updates=True)
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.run_polling()
