@@ -7,10 +7,9 @@ from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
 
-# ==================== КОНФИГ ====================
 BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_ID = 6127276408
-ADMIN_PASSWORD = "1997"  # Пароль для входа в админ-панель
+ADMIN_PASSWORD = "1997"
 
 REFERRAL_REWARD = 15
 REFERRED_REWARD = 10
@@ -137,7 +136,7 @@ def admin_send_money(user_id, amount):
 
 def admin_take_money(user_id, amount):
     row = get_user(user_id)
-    if row and row[3] >= amount:
+    if row and row[4] >= amount:
         conn = sqlite3.connect('referral_bot.db')
         c = conn.cursor()
         c.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
@@ -149,7 +148,7 @@ def admin_take_money(user_id, amount):
 # ==================== КЛАВИАТУРЫ ====================
 def main_keyboard(user_id):
     row = get_user(user_id)
-    balance = row[3] if row else 0
+    balance = row[4] if row else 0  # Индекс 4 = balance
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"💰 Баланс: {balance} ₽", callback_data="balance")],
         [InlineKeyboardButton("👥 Рефералы", callback_data="referrals"), InlineKeyboardButton("🔗 Моя ссылка", callback_data="my_link")],
@@ -178,7 +177,6 @@ def start(update: Update, context):
     uid = update.effective_user.id
     name = update.effective_user.username or update.effective_user.first_name
     
-    # Реферальный код
     ref_id = None
     if context.args:
         code = context.args[0]
@@ -199,12 +197,14 @@ def start(update: Update, context):
             context.bot.send_message(ref_id, f"🎉 Новый реферал! @{name}\n💰 +{REFERRAL_REWARD} ₽")
             update.message.reply_text(f"🎉 Бонус {REFERRED_REWARD} ₽ за регистрацию!")
     
+    user = get_user(uid)
+    ref_code = user[3] if user else "ошибка"
     update.message.reply_text(
         "🤝 <b>РЕФЕРАЛЬНЫЙ БОТ</b>\n\n"
         f"🔥 За каждого друга: +{REFERRAL_REWARD} ₽\n"
         f"🎁 Другу бонус: +{REFERRED_REWARD} ₽\n"
         f"📅 Ежедневный бонус: +{DAILY_BONUS} ₽\n\n"
-        f"💎 Твой код: <code>{get_user(uid)[4]}</code>\n\n"
+        f"💎 Твой код: <code>{ref_code}</code>\n\n"
         "👇 Выбери действие:",
         parse_mode="HTML",
         reply_markup=main_keyboard(uid)
@@ -218,28 +218,32 @@ def button_handler(update: Update, context):
     row = get_user(uid)
     
     if data == "balance":
+        balance = row[4] if row else 0
+        earned = row[5] if row else 0
+        refs = row[6] if row else 0
         query.edit_message_text(
             f"💰 <b>Твой баланс</b>\n\n"
-            f"💵 Доступно: {row[3]} ₽\n"
-            f"📈 Заработано всего: {row[4]} ₽\n"
-            f"👥 Приглашено: {row[5]}\n\n"
+            f"💵 Доступно: {balance} ₽\n"
+            f"📈 Заработано всего: {earned} ₽\n"
+            f"👥 Приглашено: {refs}\n\n"
             f"⚡ Минимум вывода: {MIN_WITHDRAW} ₽",
             parse_mode="HTML",
             reply_markup=main_keyboard(uid)
         )
     elif data == "my_link":
-        code = row[4]
-        bot_info = context.bot.get_me()
-        url = f"https://t.me/{bot_info.username}?start={code}"
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📤 Поделиться", url=f"https://t.me/share/url?url={url}")],
-            [InlineKeyboardButton("🔙 Назад", callback_data="back")]
-        ])
-        query.edit_message_text(
-            f"🔗 <b>Твоя ссылка</b>\n\n<code>{url}</code>\n\nПриглашай друзей!",
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
+        code = row[3] if row else None
+        if code:
+            bot_info = context.bot.get_me()
+            url = f"https://t.me/{bot_info.username}?start={code}"
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📤 Поделиться", url=f"https://t.me/share/url?url={url}")],
+                [InlineKeyboardButton("🔙 Назад", callback_data="back")]
+            ])
+            query.edit_message_text(
+                f"🔗 <b>Твоя ссылка</b>\n\n<code>{url}</code>\n\nПриглашай друзей!",
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
     elif data == "referrals":
         conn = sqlite3.connect('referral_bot.db')
         c = conn.cursor()
@@ -281,21 +285,25 @@ def button_handler(update: Update, context):
         )
         context.user_data['awaiting_promo'] = True
     elif data == "withdraw":
-        if row[3] < MIN_WITHDRAW:
-            query.answer(f"❌ Минимум {MIN_WITHDRAW} ₽. У тебя {row[3]} ₽", show_alert=True)
+        balance = row[4] if row else 0
+        if balance < MIN_WITHDRAW:
+            query.answer(f"❌ Минимум {MIN_WITHDRAW} ₽. У тебя {balance} ₽", show_alert=True)
             return
         query.edit_message_text(
-            f"✅ <b>Заявка отправлена!</b>\n\nСумма: {row[3]} ₽\nАдмин свяжется с тобой.",
+            f"✅ <b>Заявка отправлена!</b>\n\nСумма: {balance} ₽\nАдмин свяжется с тобой.",
             parse_mode="HTML",
             reply_markup=main_keyboard(uid)
         )
     elif data == "stats":
         total_users, total_earned, total_balance, total_refs = get_stats()
+        balance = row[4] if row else 0
+        earned = row[5] if row else 0
+        refs = row[6] if row else 0
         query.edit_message_text(
             f"📊 <b>Твоя статистика</b>\n\n"
-            f"👥 Рефералов: {row[5]}\n"
-            f"💰 Заработано: {row[4]} ₽\n"
-            f"💳 Доступно: {row[3]} ₽\n\n"
+            f"👥 Рефералов: {refs}\n"
+            f"💰 Заработано: {earned} ₽\n"
+            f"💳 Доступно: {balance} ₽\n\n"
             f"📈 <b>Общая статистика</b>\n"
             f"👤 Пользователей: {total_users}\n"
             f"💰 Всего заработано: {total_earned} ₽",
@@ -349,7 +357,6 @@ def handle_message(update: Update, context):
     user_id = update.effective_user.id
     text = update.message.text.strip()
     
-    # Проверка пароля админа
     if context.user_data.get('awaiting_admin_password'):
         if text == ADMIN_PASSWORD:
             context.user_data['admin_logged_in'] = True
@@ -360,7 +367,6 @@ def handle_message(update: Update, context):
             update.message.reply_text("❌ Неверный пароль!", reply_markup=main_keyboard(user_id))
         return
     
-    # Промокоды
     if context.user_data.get('awaiting_promo'):
         code = text.upper()
         success, amount = apply_promo(user_id, code)
@@ -369,6 +375,9 @@ def handle_message(update: Update, context):
         else:
             update.message.reply_text(f"❌ Неверный промокод: {code}", reply_markup=main_keyboard(user_id))
         context.user_data['awaiting_promo'] = False
+        return
+    
+    update.message.reply_text("Используй кнопки меню 👇", reply_markup=main_keyboard(user_id))
 
 # ==================== АДМИН-КОМАНДЫ ====================
 def give_command(update: Update, context):
@@ -395,7 +404,7 @@ def take_command(update: Update, context):
             update.message.reply_text(f"✅ Забрано {amount} ₽ у {user_id}")
             context.bot.send_message(user_id, f"⚠️ С твоего баланса списано {amount} ₽")
         else:
-            update.message.reply_text("❌ Недостаточно средств")
+            update.message.reply_text("❌ Недостаточно средств или пользователь не найден")
     except:
         update.message.reply_text("❌ Используй: /take ID сумма")
 
@@ -469,5 +478,5 @@ if __name__ == "__main__":
     dp.add_handler(MessageHandler(Filters.text, handle_message))
     
     updater.start_polling()
-    print("Бот с полным функционалом запущен!")
+    print("Бот запущен!")
     updater.idle()
