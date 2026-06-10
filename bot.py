@@ -11,10 +11,9 @@ BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_ID = 6127276408
 ADMIN_PASSWORD = "1997"
 
-# НАСТРОЙКИ
 DAILY_BONUS = 5
 MIN_WITHDRAW = 200
-REQUIRED_CHANNEL = "@prof1t_77"  # <--- ТВОЙ КАНАЛ
+REQUIRED_CHANNEL = "@prof1t_77"
 
 TASKS = []
 
@@ -133,6 +132,10 @@ def admin_send_money(user_id, amount):
     return True
 
 def check_subscription(bot, user_id, channel_username):
+    # Админ пропускает проверку
+    if user_id == ADMIN_ID:
+        return True
+    
     try:
         chat_member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
         status = chat_member.status
@@ -173,7 +176,7 @@ def start(update: Update, context):
     uid = update.effective_user.id
     name = update.effective_user.username or update.effective_user.first_name
     
-    # Проверяем подписку на канал
+    # Проверяем подписку на канал (админ пропускает)
     if not check_subscription(context.bot, uid, REQUIRED_CHANNEL):
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔗 ПОДПИСАТЬСЯ НА КАНАЛ", url="https://t.me/prof1t_77")],
@@ -182,8 +185,7 @@ def start(update: Update, context):
         update.message.reply_text(
             f"❌ <b>ДОСТУП ЗАПРЕЩЁН</b> ❌\n\n"
             f"Для использования бота необходимо подписаться на наш канал.\n\n"
-            f"👇 <b>Нажми на кнопку ниже и подпишись!</b>\n"
-            f"После подписки нажми «Проверить подписку».",
+            f"👇 <b>Нажми на кнопку ниже и подпишись!</b>",
             parse_mode="HTML",
             reply_markup=keyboard
         )
@@ -250,7 +252,7 @@ def handle_buttons(update: Update, context):
     text = update.message.text
     uid = update.effective_user.id
     
-    # Проверка подписки перед каждым действием
+    # Проверка подписки (админ пропускает)
     if not check_subscription(context.bot, uid, REQUIRED_CHANNEL):
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔗 ПОДПИСАТЬСЯ НА КАНАЛ", url="https://t.me/prof1t_77")],
@@ -324,6 +326,10 @@ def handle_buttons(update: Update, context):
         update.message.reply_text("❓ <b>Помощь</b>\n\nПо всем вопросам пиши админу:\n👨‍💻 @n1kolay0_0\n\nОбычно отвечаю в течение нескольких часов.", parse_mode="HTML", reply_markup=get_main_keyboard())
     
     elif text == "⚡ Админ":
+        # Админ-панель доступна только по ID
+        if uid != ADMIN_ID:
+            update.message.reply_text("❌ <b>Нет доступа</b>\n\nЭта панель только для администратора.", parse_mode="HTML", reply_markup=get_main_keyboard())
+            return
         update.message.reply_text("🔐 <b>Введите пароль:</b>", parse_mode="HTML")
         context.user_data['awaiting_admin_password'] = True
 
@@ -410,11 +416,21 @@ def button_handler(update: Update, context):
     elif data == "back_tasks":
         query.edit_message_text("📋 <b>Доступные задания</b>", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
     
+    # Админ-панель (доступна только по ID)
     elif data == "admin_give":
+        if uid != ADMIN_ID:
+            query.edit_message_text("❌ Нет доступа")
+            return
         query.edit_message_text("💰 <b>Выдать деньги</b>\n\n/give ID сумма\n\nПример: /give 6127276408 100", parse_mode="HTML")
     elif data == "admin_broadcast":
+        if uid != ADMIN_ID:
+            query.edit_message_text("❌ Нет доступа")
+            return
         query.edit_message_text("📢 <b>Рассылка</b>\n\n/broadcast текст\n\nПример: /broadcast Всем привет!", parse_mode="HTML")
     elif data == "admin_users":
+        if uid != ADMIN_ID:
+            query.edit_message_text("❌ Нет доступа")
+            return
         users = get_all_users()
         if not users:
             query.edit_message_text("Нет пользователей")
@@ -424,14 +440,26 @@ def button_handler(update: Update, context):
             text += f"@{u[1] or u[0]} | {u[2]} ₽\n"
         query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_inline_keyboard())
     elif data == "admin_stats":
+        if uid != ADMIN_ID:
+            query.edit_message_text("❌ Нет доступа")
+            return
         total_users, total_earned, total_balance = get_stats()
         text = f"📊 <b>Статистика</b>\n\n👥 Пользователей: {total_users}\n💰 Заработано: {total_earned} ₽\n💳 На балансе: {total_balance} ₽"
         query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_inline_keyboard())
     elif data == "admin_bonus_all":
+        if uid != ADMIN_ID:
+            query.edit_message_text("❌ Нет доступа")
+            return
         query.edit_message_text("🎁 <b>Бонус всем</b>\n\n/bonus_all сумма\n\nПример: /bonus_all 10", parse_mode="HTML")
     elif data == "admin_add_task":
+        if uid != ADMIN_ID:
+            query.edit_message_text("❌ Нет доступа")
+            return
         query.edit_message_text("📝 <b>Добавить задание</b>\n\n/add_task название | @username | награда\n\nПример:\n/add_task Подпишись на канал | @example | 10", parse_mode="HTML")
     elif data == "admin_close":
+        if uid != ADMIN_ID:
+            query.edit_message_text("❌ Нет доступа")
+            return
         context.user_data['admin_logged_in'] = False
         query.edit_message_text("🔒 Админ-панель закрыта", reply_markup=get_main_keyboard())
 
@@ -440,17 +468,17 @@ def handle_message(update: Update, context):
     text = update.message.text.strip()
     
     if context.user_data.get('awaiting_admin_password'):
-        if text == ADMIN_PASSWORD:
+        if text == ADMIN_PASSWORD and user_id == ADMIN_ID:
             context.user_data['admin_logged_in'] = True
             context.user_data['awaiting_admin_password'] = False
             update.message.reply_text("✅ <b>Доступ разрешён</b>\n\nДобро пожаловать в админ-панель.", parse_mode="HTML", reply_markup=admin_inline_keyboard())
         else:
             context.user_data['awaiting_admin_password'] = False
-            update.message.reply_text("❌ <b>Неверный пароль</b>", parse_mode="HTML", reply_markup=get_main_keyboard())
+            update.message.reply_text("❌ <b>Неверный пароль или нет доступа</b>", parse_mode="HTML", reply_markup=get_main_keyboard())
         return
 
 def give_command(update: Update, context):
-    if update.effective_user.id != ADMIN_ID and not context.user_data.get('admin_logged_in', False):
+    if update.effective_user.id != ADMIN_ID:
         update.message.reply_text("❌ Нет доступа")
         return
     try:
@@ -466,7 +494,7 @@ def give_command(update: Update, context):
         update.message.reply_text("❌ Используй: /give ID сумма")
 
 def broadcast_command(update: Update, context):
-    if update.effective_user.id != ADMIN_ID and not context.user_data.get('admin_logged_in', False):
+    if update.effective_user.id != ADMIN_ID:
         update.message.reply_text("❌ Нет доступа")
         return
     if not context.args:
@@ -484,7 +512,7 @@ def broadcast_command(update: Update, context):
     update.message.reply_text(f"✅ Рассылка отправлена {success} пользователям")
 
 def bonus_all_command(update: Update, context):
-    if update.effective_user.id != ADMIN_ID and not context.user_data.get('admin_logged_in', False):
+    if update.effective_user.id != ADMIN_ID:
         update.message.reply_text("❌ Нет доступа")
         return
     try:
@@ -503,7 +531,7 @@ def bonus_all_command(update: Update, context):
         update.message.reply_text("❌ Используй: /bonus_all сумма")
 
 def add_task_command(update: Update, context):
-    if update.effective_user.id != ADMIN_ID and not context.user_data.get('admin_logged_in', False):
+    if update.effective_user.id != ADMIN_ID:
         update.message.reply_text("❌ Нет доступа")
         return
     try:
@@ -544,5 +572,5 @@ if __name__ == "__main__":
     dp.add_handler(MessageHandler(Filters.text, handle_message))
     
     updater.start_polling()
-    print("Бот с проверкой подписки запущен!")
+    print("Бот запущен!")
     updater.idle()
