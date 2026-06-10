@@ -24,7 +24,6 @@ PRO_PRICE_STARS = 100
 
 TASKS = []
 
-# Конвертация
 def rub_to_stars(rub):
     return int(rub / 3)
 
@@ -469,8 +468,8 @@ def handle_withdraw_details(update: Update, context):
     usdt_amount = rub_to_usdt(amount_rub)
     
     method_names = {
-        'sbp': f'📱 СБП (номер телефона)',
-        'card': f'💳 Банковская карта',
+        'sbp': f'📱 СБП ({amount_rub} ₽)',
+        'card': f'💳 Банковская карта ({amount_rub} ₽)',
         'crypto': f'🪙 Криптовалюта USDT TRC20 ({usdt_amount} USDT)',
         'stars': f'⭐ Telegram Stars ({stars_amount} Stars)'
     }
@@ -517,6 +516,7 @@ def button_handler(update: Update, context):
     query.answer()
     data = query.data
     uid = query.from_user.id
+    
     if data == "check_sub":
         if check_subscription(context.bot, uid, REQUIRED_CHANNEL):
             name = query.from_user.username or query.from_user.first_name
@@ -548,6 +548,7 @@ def button_handler(update: Update, context):
                 parse_mode="HTML", reply_markup=keyboard
             )
         return
+    
     if data.startswith("task_"):
         task_id = int(data.split("_")[1])
         task = next((t for t in TASKS if t["id"] == task_id), None)
@@ -564,6 +565,7 @@ def button_handler(update: Update, context):
         ])
         query.edit_message_text(f"📌 <b>{task['name']}</b>\n\n💰 Награда: {reward} ₽\n\n📝 Инструкция:\n1. Нажми «Перейти к заданию»\n2. Подпишись на канал/группу\n3. Вернись и нажми «Проверить»\n\n⚡ Бот проверит подписку автоматически.", parse_mode="HTML", reply_markup=keyboard)
         return
+    
     if data.startswith("check_"):
         task_id = int(data.split("_")[1])
         task = next((t for t in TASKS if t["id"] == task_id), None)
@@ -582,6 +584,7 @@ def button_handler(update: Update, context):
         update_balance(uid, reward)
         query.edit_message_text(f"✅ <b>Задание выполнено!</b>\n\n📌 {task['name']}\n💰 Начислено: +{reward} ₽\n\n🎉 Спасибо! Продолжай выполнять задания.", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
         return
+    
     if data == "back_tasks":
         query.edit_message_text("📋 <b>Доступные задания</b>", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
         return
@@ -603,6 +606,7 @@ def button_handler(update: Update, context):
             parse_mode="HTML"
         )
         return
+    
     if data == "withdraw_card":
         context.user_data['withdraw_method'] = 'card'
         context.user_data['awaiting_withdraw_details'] = True
@@ -619,6 +623,7 @@ def button_handler(update: Update, context):
             parse_mode="HTML"
         )
         return
+    
     if data == "withdraw_crypto":
         context.user_data['withdraw_method'] = 'crypto'
         context.user_data['awaiting_withdraw_details'] = True
@@ -632,6 +637,7 @@ def button_handler(update: Update, context):
             parse_mode="HTML"
         )
         return
+    
     if data == "withdraw_stars":
         context.user_data['withdraw_method'] = 'stars'
         context.user_data['awaiting_withdraw_details'] = True
@@ -646,6 +652,7 @@ def button_handler(update: Update, context):
             parse_mode="HTML"
         )
         return
+    
     if data == "back_to_menu":
         query.edit_message_text("🤝 <b>Главное меню</b>", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
         return
@@ -654,6 +661,7 @@ def button_handler(update: Update, context):
     if uid != ADMIN_ID:
         query.edit_message_text("❌ Нет доступа")
         return
+    
     if data == "admin_give":
         query.edit_message_text("💰 <b>Выдать деньги</b>\n\n/give ID сумма\n\nПример: /give 6127276408 100", parse_mode="HTML")
     elif data == "admin_broadcast":
