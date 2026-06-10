@@ -248,15 +248,15 @@ def tasks_keyboard(user_id):
 
 def admin_inline_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💰 Выдать деньги", callback_data="admin_give")],
-        [InlineKeyboardButton("➕ Пополнить баланс", callback_data="admin_add_balance")],
-        [InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")],
+        [InlineKeyboardButton("💰 Выдать деньги (/give)", callback_data="admin_give_info")],
+        [InlineKeyboardButton("➕ Пополнить баланс (/add_balance)", callback_data="admin_add_balance_info")],
+        [InlineKeyboardButton("📢 Рассылка (/broadcast)", callback_data="admin_broadcast_info")],
         [InlineKeyboardButton("👥 Список юзеров", callback_data="admin_users")],
         [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats")],
-        [InlineKeyboardButton("🎁 Бонус всем", callback_data="admin_bonus_all")],
-        [InlineKeyboardButton("📝 Добавить задание", callback_data="admin_add_task")],
-        [InlineKeyboardButton("👑 Включить PRO", callback_data="admin_pro_on")],
-        [InlineKeyboardButton("👑 Выключить PRO", callback_data="admin_pro_off")],
+        [InlineKeyboardButton("🎁 Бонус всем (/bonus_all)", callback_data="admin_bonus_all_info")],
+        [InlineKeyboardButton("📝 Добавить задание (/add_task)", callback_data="admin_add_task_info")],
+        [InlineKeyboardButton("👑 Включить PRO (/pro_on)", callback_data="admin_pro_on_info")],
+        [InlineKeyboardButton("👑 Выключить PRO (/pro_off)", callback_data="admin_pro_off_info")],
         [InlineKeyboardButton("💳 Заявки на вывод", callback_data="admin_withdraw_requests")],
         [InlineKeyboardButton("🔒 Закрыть", callback_data="admin_close")]
     ])
@@ -599,86 +599,86 @@ def button_handler(update: Update, context):
         )
         return
     
-    # АДМИН-ПАНЕЛЬ
+    # АДМИН-ПАНЕЛЬ (информационные кнопки)
     if uid != ADMIN_ID:
         query.edit_message_text("❌ Нет доступа")
         return
     
-    if data == "admin_give":
+    if data == "admin_give_info":
         query.edit_message_text(
             "💰 <b>Выдать деньги</b>\n\n"
-            "Введите ID пользователя и сумму через пробел:\n"
-            "<code>6127276408 100</code>",
-            parse_mode="HTML"
+            "Используй команду:\n"
+            "<code>/give ID сумма</code>\n\n"
+            "Пример: <code>/give 6127276408 100</code>",
+            parse_mode="HTML", reply_markup=admin_inline_keyboard()
         )
-        context.user_data['admin_action'] = 'give'
         return
     
-    if data == "admin_add_balance":
+    if data == "admin_add_balance_info":
         query.edit_message_text(
             "➕ <b>Пополнить баланс</b>\n\n"
-            "Введите ID пользователя и сумму через пробел:\n"
-            "<code>6127276408 500</code>",
-            parse_mode="HTML"
+            "Используй команду:\n"
+            "<code>/add_balance ID сумма</code>\n\n"
+            "Пример: <code>/add_balance 6127276408 500</code>",
+            parse_mode="HTML", reply_markup=admin_inline_keyboard()
         )
-        context.user_data['admin_action'] = 'add_balance'
         return
     
-    if data == "admin_broadcast":
+    if data == "admin_broadcast_info":
         query.edit_message_text(
             "📢 <b>Рассылка</b>\n\n"
-            "Введите текст сообщения для рассылки:",
-            parse_mode="HTML"
+            "Используй команду:\n"
+            "<code>/broadcast текст</code>\n\n"
+            "Пример: <code>/broadcast Всем привет!</code>",
+            parse_mode="HTML", reply_markup=admin_inline_keyboard()
         )
-        context.user_data['admin_action'] = 'broadcast'
         return
     
-    if data == "admin_bonus_all":
+    if data == "admin_bonus_all_info":
         query.edit_message_text(
             "🎁 <b>Бонус всем</b>\n\n"
-            "Введите сумму бонуса для всех пользователей:\n"
-            "<code>10</code>",
-            parse_mode="HTML"
+            "Используй команду:\n"
+            "<code>/bonus_all сумма</code>\n\n"
+            "Пример: <code>/bonus_all 10</code>",
+            parse_mode="HTML", reply_markup=admin_inline_keyboard()
         )
-        context.user_data['admin_action'] = 'bonus_all'
         return
     
-    if data == "admin_add_task":
+    if data == "admin_add_task_info":
         query.edit_message_text(
             "📝 <b>Добавить задание</b>\n\n"
-            "Введите данные в формате:\n"
-            "<code>Название задания | @username_канала | награда</code>\n\n"
+            "Используй команду:\n"
+            "<code>/add_task название | @username | награда</code>\n\n"
             "Пример:\n"
-            "<code>Подпишись на канал | @example | 10</code>",
-            parse_mode="HTML"
+            "<code>/add_task Подпишись на канал | @example | 10</code>",
+            parse_mode="HTML", reply_markup=admin_inline_keyboard()
         )
-        context.user_data['admin_action'] = 'add_task'
         return
     
-    if data == "admin_pro_on":
+    if data == "admin_pro_on_info":
         query.edit_message_text(
             "👑 <b>Включить PRO-подписку</b>\n\n"
-            "Введите ID пользователя:\n"
-            "<code>6127276408</code>",
-            parse_mode="HTML"
+            "Используй команду:\n"
+            "<code>/pro_on ID</code>\n\n"
+            "Пример: <code>/pro_on 6127276408</code>",
+            parse_mode="HTML", reply_markup=admin_inline_keyboard()
         )
-        context.user_data['admin_action'] = 'pro_on'
         return
     
-    if data == "admin_pro_off":
+    if data == "admin_pro_off_info":
         query.edit_message_text(
             "👑 <b>Выключить PRO-подписку</b>\n\n"
-            "Введите ID пользователя:\n"
-            "<code>6127276408</code>",
-            parse_mode="HTML"
+            "Используй команду:\n"
+            "<code>/pro_off ID</code>\n\n"
+            "Пример: <code>/pro_off 6127276408</code>",
+            parse_mode="HTML", reply_markup=admin_inline_keyboard()
         )
-        context.user_data['admin_action'] = 'pro_off'
         return
     
     if data == "admin_users":
         users = get_all_users()
         if not users:
-            query.edit_message_text("❌ Нет пользователей")
+            query.edit_message_text("❌ Нет пользователей", reply_markup=admin_inline_keyboard())
             return
         text = "👥 <b>Список пользователей</b>\n\n"
         for u in users[:20]:
@@ -702,20 +702,20 @@ def button_handler(update: Update, context):
         for req in requests:
             text += f"🆔 #{req[0]} | @{req[2] or req[1]} | 💰 {req[3]} ₽ | {req[4]}\n📝 {req[5]}\n📅 {req[6]}\n➖➖➖➖➖➖➖\n"
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Отметить как выплачено", callback_data="admin_mark_paid")],
+            [InlineKeyboardButton("✅ Отметить как выплачено (/pay)", callback_data="admin_mark_paid_info")],
             [InlineKeyboardButton("🔙 Назад", callback_data="admin_back_to_menu")]
         ])
         query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
         return
     
-    if data == "admin_mark_paid":
+    if data == "admin_mark_paid_info":
         query.edit_message_text(
             "✅ <b>Отметить выплату</b>\n\n"
-            "Введите номер заявки:\n"
-            "<code>1</code>",
-            parse_mode="HTML"
+            "Используй команду:\n"
+            "<code>/pay ID_заявки</code>\n\n"
+            "Пример: <code>/pay 1</code>",
+            parse_mode="HTML", reply_markup=admin_inline_keyboard()
         )
-        context.user_data['admin_action'] = 'mark_paid'
         return
     
     if data == "admin_back_to_menu":
@@ -724,138 +724,6 @@ def button_handler(update: Update, context):
     
     if data == "admin_close":
         query.edit_message_text("🔒 Админ-панель закрыта", reply_markup=get_main_keyboard(uid))
-        return
-
-def handle_admin_input(update: Update, context):
-    uid = update.effective_user.id
-    if uid != ADMIN_ID:
-        return
-    
-    action = context.user_data.get('admin_action')
-    if not action:
-        return
-    
-    text = update.message.text.strip()
-    context.user_data['admin_action'] = None
-    
-    if action == 'give':
-        try:
-            parts = text.split()
-            if len(parts) != 2:
-                raise ValueError
-            user_id = int(parts[0])
-            amount = int(parts[1])
-            admin_send_money(user_id, amount)
-            update.message.reply_text(f"✅ Выдано {amount} ₽ пользователю {user_id}", reply_markup=admin_inline_keyboard())
-            try:
-                update.message.bot.send_message(user_id, f"🎉 Администратор начислил тебе {amount} ₽!")
-            except:
-                pass
-        except:
-            update.message.reply_text("❌ Ошибка. Используй формат: ID сумма", reply_markup=admin_inline_keyboard())
-        return
-    
-    if action == 'add_balance':
-        try:
-            parts = text.split()
-            if len(parts) != 2:
-                raise ValueError
-            user_id = int(parts[0])
-            amount = int(parts[1])
-            admin_send_money(user_id, amount)
-            update.message.reply_text(f"✅ Пополнено {amount} ₽ пользователю {user_id}", reply_markup=admin_inline_keyboard())
-            try:
-                update.message.bot.send_message(user_id, f"🎉 Администратор пополнил твой баланс на {amount} ₽!")
-            except:
-                pass
-        except:
-            update.message.reply_text("❌ Ошибка. Используй формат: ID сумма", reply_markup=admin_inline_keyboard())
-        return
-    
-    if action == 'broadcast':
-        users = get_all_users()
-        success = 0
-        for user in users:
-            try:
-                update.message.bot.send_message(user[0], f"📢 {text}")
-                success += 1
-            except:
-                pass
-        update.message.reply_text(f"✅ Рассылка отправлена {success} пользователям", reply_markup=admin_inline_keyboard())
-        return
-    
-    if action == 'bonus_all':
-        try:
-            amount = int(text)
-            users = get_all_users()
-            success = 0
-            for user in users:
-                try:
-                    admin_send_money(user[0], amount)
-                    update.message.bot.send_message(user[0], f"🎁 Бонус всем! +{amount} ₽")
-                    success += 1
-                except:
-                    pass
-            update.message.reply_text(f"✅ Бонус {amount} ₽ отправлен {success} пользователям", reply_markup=admin_inline_keyboard())
-        except:
-            update.message.reply_text("❌ Ошибка. Введи сумму", reply_markup=admin_inline_keyboard())
-        return
-    
-    if action == 'add_task':
-        try:
-            parts = text.split('|')
-            if len(parts) != 3:
-                raise ValueError
-            name = parts[0].strip()
-            channel_username = parts[1].strip().replace("@", "")
-            reward = int(parts[2].strip())
-            url = f"https://t.me/{channel_username}"
-            new_id = max([t["id"] for t in TASKS], default=0) + 1
-            TASKS.append({"id": new_id, "name": name, "url": url, "reward": reward})
-            update.message.reply_text(f"✅ Задание добавлено!\n\n{name}\n{url}\n💰 {reward} ₽", reply_markup=admin_inline_keyboard())
-        except:
-            update.message.reply_text("❌ Ошибка. Формат: название | @username | награда", reply_markup=admin_inline_keyboard())
-        return
-    
-    if action == 'pro_on':
-        try:
-            user_id = int(text)
-            if check_pro_status(user_id):
-                update.message.reply_text(f"👑 У пользователя {user_id} уже есть PRO-подписка", reply_markup=admin_inline_keyboard())
-                return
-            activate_pro(user_id, 30)
-            update.message.reply_text(f"✅ PRO-подписка включена пользователю {user_id} на 30 дней", reply_markup=admin_inline_keyboard())
-            try:
-                update.message.bot.send_message(user_id, "🎉 Администратор включил тебе PRO-подписку на 30 дней! 👑\n\nНаграды увеличены в 2 раза!")
-            except:
-                pass
-        except:
-            update.message.reply_text("❌ Ошибка. Введи ID пользователя", reply_markup=admin_inline_keyboard())
-        return
-    
-    if action == 'pro_off':
-        try:
-            user_id = int(text)
-            if not check_pro_status(user_id):
-                update.message.reply_text(f"👑 У пользователя {user_id} нет PRO-подписки", reply_markup=admin_inline_keyboard())
-                return
-            deactivate_pro(user_id)
-            update.message.reply_text(f"✅ PRO-подписка выключена пользователю {user_id}", reply_markup=admin_inline_keyboard())
-            try:
-                update.message.bot.send_message(user_id, "⚠️ Администратор отключил PRO-подписку.")
-            except:
-                pass
-        except:
-            update.message.reply_text("❌ Ошибка. Введи ID пользователя", reply_markup=admin_inline_keyboard())
-        return
-    
-    if action == 'mark_paid':
-        try:
-            request_id = int(text)
-            complete_request(request_id)
-            update.message.reply_text(f"✅ Заявка #{request_id} отмечена как выплаченная", reply_markup=admin_inline_keyboard())
-        except:
-            update.message.reply_text("❌ Ошибка. Введи номер заявки", reply_markup=admin_inline_keyboard())
         return
 
 def handle_withdraw_details(update: Update, context):
@@ -929,6 +797,158 @@ def id_command(update: Update, context):
     pro_text = " (PRO 👑)" if is_pro else ""
     update.message.reply_text(f"🆔 Твой ID: {uid}{pro_text}")
 
+# ==================== АДМИН-КОМАНДЫ ====================
+def give_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    try:
+        user_id = int(context.args[0])
+        amount = int(context.args[1])
+        admin_send_money(user_id, amount)
+        update.message.reply_text(f"✅ Выдано {amount} ₽ пользователю {user_id}")
+        try:
+            update.message.bot.send_message(user_id, f"🎉 Администратор начислил тебе {amount} ₽!")
+        except:
+            pass
+    except:
+        update.message.reply_text("❌ Используй: /give ID сумма")
+
+def add_balance_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    try:
+        user_id = int(context.args[0])
+        amount = int(context.args[1])
+        admin_send_money(user_id, amount)
+        update.message.reply_text(f"✅ Пополнено {amount} ₽ пользователю {user_id}")
+        try:
+            update.message.bot.send_message(user_id, f"🎉 Администратор пополнил твой баланс на {amount} ₽!")
+        except:
+            pass
+    except:
+        update.message.reply_text("❌ Используй: /add_balance ID сумма")
+
+def broadcast_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    if not context.args:
+        update.message.reply_text("❌ Используй: /broadcast текст")
+        return
+    text = ' '.join(context.args)
+    users = get_all_users()
+    success = 0
+    for user in users:
+        try:
+            update.message.bot.send_message(user[0], f"📢 {text}")
+            success += 1
+        except:
+            pass
+    update.message.reply_text(f"✅ Рассылка отправлена {success} пользователям")
+
+def bonus_all_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    try:
+        amount = int(context.args[0])
+        users = get_all_users()
+        success = 0
+        for user in users:
+            try:
+                admin_send_money(user[0], amount)
+                update.message.bot.send_message(user[0], f"🎁 Бонус всем! +{amount} ₽")
+                success += 1
+            except:
+                pass
+        update.message.reply_text(f"✅ Бонус {amount} ₽ отправлен {success} пользователям")
+    except:
+        update.message.reply_text("❌ Используй: /bonus_all сумма")
+
+def add_task_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    try:
+        text = ' '.join(context.args)
+        parts = text.split('|')
+        if len(parts) != 3:
+            update.message.reply_text("❌ Используй: /add_task название | @username | награда")
+            return
+        name = parts[0].strip()
+        channel_username = parts[1].strip().replace("@", "")
+        reward = int(parts[2].strip())
+        url = f"https://t.me/{channel_username}"
+        new_id = max([t["id"] for t in TASKS], default=0) + 1
+        TASKS.append({"id": new_id, "name": name, "url": url, "reward": reward})
+        update.message.reply_text(f"✅ Задание добавлено!\n\n{name}\n{url}\n💰 {reward} ₽")
+    except:
+        update.message.reply_text("❌ Ошибка. Используй: /add_task название | @username | награда")
+
+def pro_on_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    try:
+        user_id = int(context.args[0])
+        if check_pro_status(user_id):
+            update.message.reply_text(f"👑 У пользователя {user_id} уже есть PRO-подписка")
+            return
+        activate_pro(user_id, 30)
+        update.message.reply_text(f"✅ PRO-подписка включена пользователю {user_id} на 30 дней")
+        try:
+            update.message.bot.send_message(user_id, "🎉 Администратор включил тебе PRO-подписку на 30 дней! 👑\n\nНаграды увеличены в 2 раза!")
+        except:
+            pass
+    except:
+        update.message.reply_text("❌ Используй: /pro_on ID")
+
+def pro_off_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    try:
+        user_id = int(context.args[0])
+        if not check_pro_status(user_id):
+            update.message.reply_text(f"👑 У пользователя {user_id} нет PRO-подписки")
+            return
+        deactivate_pro(user_id)
+        update.message.reply_text(f"✅ PRO-подписка выключена пользователю {user_id}")
+        try:
+            update.message.bot.send_message(user_id, "⚠️ Администратор отключил PRO-подписку.")
+        except:
+            pass
+    except:
+        update.message.reply_text("❌ Используй: /pro_off ID")
+
+def pro_status_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    try:
+        user_id = int(context.args[0])
+        is_pro = check_pro_status(user_id)
+        row = get_user(user_id)
+        if is_pro:
+            update.message.reply_text(f"👑 Пользователь {user_id} имеет PRO-подписку до {row[7]}")
+        else:
+            update.message.reply_text(f"👑 Пользователь {user_id} не имеет PRO-подписку")
+    except:
+        update.message.reply_text("❌ Используй: /pro_status ID")
+
+def pay_command(update: Update, context):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("❌ Нет доступа")
+        return
+    try:
+        request_id = int(context.args[0])
+        complete_request(request_id)
+        update.message.reply_text(f"✅ Заявка #{request_id} отмечена как выплаченная")
+    except:
+        update.message.reply_text("❌ Используй: /pay ID_заявки")
+
 if __name__ == "__main__":
     init_db()
     Thread(target=run_flask).start()
@@ -937,11 +957,19 @@ if __name__ == "__main__":
     
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("id", id_command))
+    dp.add_handler(CommandHandler("give", give_command))
+    dp.add_handler(CommandHandler("add_balance", add_balance_command))
+    dp.add_handler(CommandHandler("broadcast", broadcast_command))
+    dp.add_handler(CommandHandler("bonus_all", bonus_all_command))
+    dp.add_handler(CommandHandler("add_task", add_task_command))
+    dp.add_handler(CommandHandler("pro_on", pro_on_command))
+    dp.add_handler(CommandHandler("pro_off", pro_off_command))
+    dp.add_handler(CommandHandler("pro_status", pro_status_command))
+    dp.add_handler(CommandHandler("pay", pay_command))
     dp.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="check_sub"))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_buttons))
     dp.add_handler(CallbackQueryHandler(button_handler))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_withdraw_details))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_admin_input))
     dp.add_handler(PreCheckoutQueryHandler(pre_checkout))
     dp.add_handler(MessageHandler(Filters.successful_payment, successful_payment))
     
