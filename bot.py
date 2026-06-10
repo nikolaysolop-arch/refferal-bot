@@ -9,7 +9,6 @@ from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageH
 
 # ==================== КОНФИГ ====================
 BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
-ADMIN_ID = 6127276408
 ADMIN_PASSWORD = "1997"
 
 REFERRAL_REWARD = 15.0
@@ -182,7 +181,8 @@ def main_keyboard(user_id):
         [InlineKeyboardButton("💰 ЗАРАБОТАТЬ", callback_data="earn")],
         [InlineKeyboardButton("💸 Вывести деньги", callback_data="withdraw")],
         [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
-        [InlineKeyboardButton("❓ Поддержка", callback_data="support")]
+        [InlineKeyboardButton("❓ Поддержка", callback_data="support")],
+        [InlineKeyboardButton("🔐 АДМИН-ПАНЕЛЬ", callback_data="admin_login")]
     ])
 
 def admin_keyboard():
@@ -194,11 +194,10 @@ def admin_keyboard():
         [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats")],
         [InlineKeyboardButton("🎁 Бонус всем", callback_data="admin_bonus_all")],
         [InlineKeyboardButton("🎟 Создать промокод", callback_data="admin_create_promo")],
-        [InlineKeyboardButton("💰 Изменить бонусы", callback_data="admin_bonus_settings")],
         [InlineKeyboardButton("📈 Топ пользователей", callback_data="admin_top")],
         [InlineKeyboardButton("⚡ Активации за день", callback_data="admin_daily_stats")],
         [InlineKeyboardButton("🗑 Очистить базу", callback_data="admin_clear_confirm")],
-        [InlineKeyboardButton("🔒 Закрыть", callback_data="admin_close")]
+        [InlineKeyboardButton("🔙 Закрыть", callback_data="admin_close")]
     ])
 
 def get_earn_keyboard():
@@ -335,15 +334,7 @@ def button_handler(update: Update, context):
         if balance < MIN_WITHDRAW:
             query.answer(f"❌ Минимум {MIN_WITHDRAW} ₽. Твой баланс: {balance:.2f} ₽", show_alert=True)
             return
-        context.bot.send_message(
-            ADMIN_ID,
-            f"💳 <b>ЗАЯВКА НА ВЫВОД</b>\n\n"
-            f"👤 @{query.from_user.username}\n"
-            f"🆔 ID: {uid}\n"
-            f"💰 Сумма: {balance:.2f} ₽\n"
-            f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-            parse_mode="HTML"
-        )
+        context.bot.send_message(uid, f"💳 Заявка на вывод {balance} ₽ отправлена администратору!")
         query.edit_message_text(
             f"✅ <b>Заявка отправлена!</b>\n\n"
             f"💰 Сумма: {balance:.2f} ₽\n"
@@ -395,172 +386,167 @@ def button_handler(update: Update, context):
         )
     elif data == "back":
         query.edit_message_text("🤝 Главное меню:", reply_markup=main_keyboard(uid))
-
-# ==================== АДМИН-ПАНЕЛЬ ====================
-def admin_login(update: Update, context):
-    if not context.args:
-        update.message.reply_text("🔐 <b>Вход в админ-панель</b>\n\nВведи пароль: /admin 1997", parse_mode="HTML")
-        return
-    if context.args[0] == ADMIN_PASSWORD:
-        context.user_data['admin_logged_in'] = True
-        update.message.reply_text(
-            "👑 <b>ДОБРО ПОЖАЛОВАТЬ В АДМИН-ПАНЕЛЬ!</b>\n\nВыбери действие:",
-            parse_mode="HTML",
-            reply_markup=admin_keyboard()
-        )
-    else:
-        update.message.reply_text("❌ Неверный пароль! Доступ запрещён.")
-
-def admin_callback_handler(update: Update, context):
-    query = update.callback_query
-    query.answer()
-    data = query.data
-    uid = query.from_user.id
     
-    if not context.user_data.get('admin_logged_in', False):
-        query.edit_message_text("❌ Нет доступа. Введи пароль: /admin 1997")
-        return
+    # ==================== АДМИН-ПАНЕЛЬ ====================
+    elif data == "admin_login":
+        query.edit_message_text(
+            "🔐 <b>Вход в админ-панель</b>\n\n"
+            "Введите пароль цифрами:\n\n"
+            "<code>1997</code>",
+            parse_mode="HTML"
+        )
+        context.user_data['awaiting_admin_password'] = True
     
-    if data == "admin_give":
-        query.edit_message_text(
-            "💰 <b>Выдать деньги</b>\n\n"
-            "Введи команду:\n"
-            "<code>/give user_id сумма</code>\n\n"
-            "Пример: <code>/give 6127276408 100</code>",
-            parse_mode="HTML",
-            reply_markup=admin_back_keyboard()
-        )
-    elif data == "admin_take":
-        query.edit_message_text(
-            "💸 <b>Забрать деньги</b>\n\n"
-            "Введи команду:\n"
-            "<code>/take user_id сумма</code>\n\n"
-            "Пример: <code>/take 6127276408 50</code>",
-            parse_mode="HTML",
-            reply_markup=admin_back_keyboard()
-        )
-    elif data == "admin_broadcast":
-        query.edit_message_text(
-            "📢 <b>Рассылка</b>\n\n"
-            "Введи команду:\n"
-            "<code>/broadcast текст</code>\n\n"
-            "Пример: <code>/broadcast Всем привет!</code>",
-            parse_mode="HTML",
-            reply_markup=admin_back_keyboard()
-        )
-    elif data == "admin_users":
-        users = get_all_users()
-        if not users:
-            query.edit_message_text("❌ Нет пользователей", reply_markup=admin_back_keyboard())
+    elif data.startswith("admin_"):
+        if not context.user_data.get('admin_logged_in', False):
+            query.edit_message_text("❌ Нет доступа. Войдите в админ-панель через главное меню.", reply_markup=main_keyboard(uid))
             return
-        text = "👥 <b>СПИСОК ПОЛЬЗОВАТЕЛЕЙ</b>\n\n"
-        for i, u in enumerate(users[:20], 1):
-            text += f"{i}. @{u[1] or u[0]} | 💰 {u[2]:.2f} ₽ | 👥 {u[4]}\n"
-        if len(users) > 20:
-            text += f"\n... и ещё {len(users) - 20} пользователей"
-        query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
-    elif data == "admin_stats":
-        total_users, total_earned, total_balance, total_refs, total_clicks = get_stats()
-        text = (
-            f"📊 <b>СТАТИСТИКА БОТА</b>\n\n"
-            f"👥 Пользователей: {total_users}\n"
-            f"👥 Всего рефералов: {total_refs}\n"
-            f"💰 Всего заработали: {total_earned:.2f} ₽\n"
-            f"💳 На балансе: {total_balance:.2f} ₽\n"
-            f"🖱 Переходов: {total_clicks}"
-        )
-        query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
-    elif data == "admin_bonus_all":
-        query.edit_message_text(
-            "🎁 <b>Бонус всем пользователям</b>\n\n"
-            "Введи команду:\n"
-            "<code>/bonus_all сумма</code>\n\n"
-            "Пример: <code>/bonus_all 10</code>",
-            parse_mode="HTML",
-            reply_markup=admin_back_keyboard()
-        )
-    elif data == "admin_create_promo":
-        query.edit_message_text(
-            "🎟 <b>Создать промокод</b>\n\n"
-            "Введи команду:\n"
-            "<code>/create_promo КОД сумма</code>\n\n"
-            "Пример: <code>/create_promo SUPER2025 200</code>",
-            parse_mode="HTML",
-            reply_markup=admin_back_keyboard()
-        )
-    elif data == "admin_bonus_settings":
-        query.edit_message_text(
-            "⚙️ <b>Настройки бонусов</b>\n\n"
-            "Введи команды:\n"
-            "<code>/set_ref_bonus 20</code> - бонус за реферала\n"
-            "<code>/set_daily_bonus 10</code> - ежедневный бонус\n"
-            "<code>/set_min_withdraw 200</code> - мин. вывод",
-            parse_mode="HTML",
-            reply_markup=admin_back_keyboard()
-        )
-    elif data == "admin_top":
-        top = get_top_users(10)
-        if not top:
-            query.edit_message_text("📈 Пока нет заработавших", reply_markup=admin_back_keyboard())
-            return
-        text = "📈 <b>ТОП ПОЛЬЗОВАТЕЛЕЙ ПО ЗАРАБОТКУ</b>\n\n"
-        for i, (username, earned) in enumerate(top, 1):
-            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "💰"
-            text += f"{medal} {i}. @{username or 'anon'} — {earned:.2f} ₽\n"
-        query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
-    elif data == "admin_daily_stats":
-        conn = sqlite3.connect('referral_bot.db')
-        c = conn.cursor()
-        today = datetime.now().strftime('%Y-%m-%d')
-        c.execute("SELECT COUNT(*) FROM users WHERE last_daily = ?", (today,))
-        daily_active = c.fetchone()[0]
-        c.execute("SELECT COUNT(*) FROM users WHERE joined_date LIKE ?", (f"{today}%",))
-        new_today = c.fetchone()[0]
-        conn.close()
-        text = (
-            f"⚡ <b>АКТИВНОСТЬ ЗА СЕГОДНЯ</b>\n\n"
-            f"📅 Дата: {today}\n"
-            f"✅ Забрали бонус: {daily_active} чел.\n"
-            f"🆕 Новых пользователей: {new_today} чел."
-        )
-        query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
-    elif data == "admin_clear_confirm":
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ ДА, ОЧИСТИТЬ", callback_data="admin_clear_yes")],
-            [InlineKeyboardButton("❌ НЕТ, НАЗАД", callback_data="admin_back")]
-        ])
-        query.edit_message_text(
-            "⚠️ <b>ВНИМАНИЕ!</b>\n\n"
-            "Ты собираешься удалить ВСЕХ пользователей и ВСЮ статистику.\n"
-            "Это действие необратимо!\n\n"
-            "Ты уверен?",
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
-    elif data == "admin_clear_yes":
-        conn = sqlite3.connect('referral_bot.db')
-        c = conn.cursor()
-        c.execute("DELETE FROM users")
-        conn.commit()
-        conn.close()
-        init_db()
-        query.edit_message_text("✅ База данных успешно очищена!", reply_markup=admin_back_keyboard())
-    elif data == "admin_back":
-        query.edit_message_text(
-            "👑 <b>АДМИН-ПАНЕЛЬ</b>\n\nВыбери действие:",
-            parse_mode="HTML",
-            reply_markup=admin_keyboard()
-        )
-    elif data == "admin_close":
-        context.user_data['admin_logged_in'] = False
-        query.edit_message_text("👑 Админ-панель закрыта", reply_markup=main_keyboard(uid))
+        
+        if data == "admin_give":
+            query.edit_message_text(
+                "💰 <b>Выдать деньги</b>\n\n"
+                "Введи команду:\n"
+                "<code>/give user_id сумма</code>\n\n"
+                "Пример: <code>/give 6127276408 100</code>",
+                parse_mode="HTML",
+                reply_markup=admin_back_keyboard()
+            )
+        elif data == "admin_take":
+            query.edit_message_text(
+                "💸 <b>Забрать деньги</b>\n\n"
+                "Введи команду:\n"
+                "<code>/take user_id сумма</code>\n\n"
+                "Пример: <code>/take 6127276408 50</code>",
+                parse_mode="HTML",
+                reply_markup=admin_back_keyboard()
+            )
+        elif data == "admin_broadcast":
+            query.edit_message_text(
+                "📢 <b>Рассылка</b>\n\n"
+                "Введи команду:\n"
+                "<code>/broadcast текст</code>\n\n"
+                "Пример: <code>/broadcast Всем привет!</code>",
+                parse_mode="HTML",
+                reply_markup=admin_back_keyboard()
+            )
+        elif data == "admin_users":
+            users = get_all_users()
+            if not users:
+                query.edit_message_text("❌ Нет пользователей", reply_markup=admin_back_keyboard())
+                return
+            text = "👥 <b>СПИСОК ПОЛЬЗОВАТЕЛЕЙ</b>\n\n"
+            for i, u in enumerate(users[:20], 1):
+                text += f"{i}. @{u[1] or u[0]} | 💰 {u[2]:.2f} ₽ | 👥 {u[4]}\n"
+            if len(users) > 20:
+                text += f"\n... и ещё {len(users) - 20} пользователей"
+            query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
+        elif data == "admin_stats":
+            total_users, total_earned, total_balance, total_refs, total_clicks = get_stats()
+            text = (
+                f"📊 <b>СТАТИСТИКА БОТА</b>\n\n"
+                f"👥 Пользователей: {total_users}\n"
+                f"👥 Всего рефералов: {total_refs}\n"
+                f"💰 Всего заработали: {total_earned:.2f} ₽\n"
+                f"💳 На балансе: {total_balance:.2f} ₽\n"
+                f"🖱 Переходов: {total_clicks}"
+            )
+            query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
+        elif data == "admin_bonus_all":
+            query.edit_message_text(
+                "🎁 <b>Бонус всем пользователям</b>\n\n"
+                "Введи команду:\n"
+                "<code>/bonus_all сумма</code>\n\n"
+                "Пример: <code>/bonus_all 10</code>",
+                parse_mode="HTML",
+                reply_markup=admin_back_keyboard()
+            )
+        elif data == "admin_create_promo":
+            query.edit_message_text(
+                "🎟 <b>Создать промокод</b>\n\n"
+                "Введи команду:\n"
+                "<code>/create_promo КОД сумма</code>\n\n"
+                "Пример: <code>/create_promo SUPER2025 200</code>",
+                parse_mode="HTML",
+                reply_markup=admin_back_keyboard()
+            )
+        elif data == "admin_top":
+            top = get_top_users(10)
+            if not top:
+                query.edit_message_text("📈 Пока нет заработавших", reply_markup=admin_back_keyboard())
+                return
+            text = "📈 <b>ТОП ПОЛЬЗОВАТЕЛЕЙ ПО ЗАРАБОТКУ</b>\n\n"
+            for i, (username, earned) in enumerate(top, 1):
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "💰"
+                text += f"{medal} {i}. @{username or 'anon'} — {earned:.2f} ₽\n"
+            query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
+        elif data == "admin_daily_stats":
+            conn = sqlite3.connect('referral_bot.db')
+            c = conn.cursor()
+            today = datetime.now().strftime('%Y-%m-%d')
+            c.execute("SELECT COUNT(*) FROM users WHERE last_daily = ?", (today,))
+            daily_active = c.fetchone()[0]
+            c.execute("SELECT COUNT(*) FROM users WHERE joined_date LIKE ?", (f"{today}%",))
+            new_today = c.fetchone()[0]
+            conn.close()
+            text = (
+                f"⚡ <b>АКТИВНОСТЬ ЗА СЕГОДНЯ</b>\n\n"
+                f"📅 Дата: {today}\n"
+                f"✅ Забрали бонус: {daily_active} чел.\n"
+                f"🆕 Новых пользователей: {new_today} чел."
+            )
+            query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
+        elif data == "admin_clear_confirm":
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ ДА, ОЧИСТИТЬ", callback_data="admin_clear_yes")],
+                [InlineKeyboardButton("❌ НЕТ, НАЗАД", callback_data="admin_back")]
+            ])
+            query.edit_message_text(
+                "⚠️ <b>ВНИМАНИЕ!</b>\n\n"
+                "Ты собираешься удалить ВСЕХ пользователей и ВСЮ статистику.\n"
+                "Это действие необратимо!\n\n"
+                "Ты уверен?",
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        elif data == "admin_clear_yes":
+            conn = sqlite3.connect('referral_bot.db')
+            c = conn.cursor()
+            c.execute("DELETE FROM users")
+            conn.commit()
+            conn.close()
+            init_db()
+            query.edit_message_text("✅ База данных успешно очищена!", reply_markup=admin_back_keyboard())
+        elif data == "admin_back":
+            query.edit_message_text(
+                "👑 <b>АДМИН-ПАНЕЛЬ</b>\n\nВыбери действие:",
+                parse_mode="HTML",
+                reply_markup=admin_keyboard()
+            )
+        elif data == "admin_close":
+            context.user_data['admin_logged_in'] = False
+            query.edit_message_text("👑 Админ-панель закрыта", reply_markup=main_keyboard(uid))
 
 def handle_message(update: Update, context):
     user_id = update.effective_user.id
-    text = update.message.text.strip().upper()
+    text = update.message.text.strip()
+    
+    if context.user_data.get('awaiting_admin_password'):
+        if text == ADMIN_PASSWORD:
+            context.user_data['admin_logged_in'] = True
+            context.user_data['awaiting_admin_password'] = False
+            update.message.reply_text(
+                "✅ <b>Доступ разрешён!</b>\n\nДобро пожаловать в админ-панель.",
+                parse_mode="HTML",
+                reply_markup=admin_keyboard()
+            )
+        else:
+            context.user_data['awaiting_admin_password'] = False
+            update.message.reply_text("❌ <b>Неверный пароль!</b>\n\nДоступ запрещён.", parse_mode="HTML", reply_markup=main_keyboard(user_id))
+        return
     
     if context.user_data.get('awaiting_promo'):
-        success, amount = apply_promo(user_id, text)
+        code = text.strip().upper()
+        success, amount = apply_promo(user_id, code)
         if success:
             update.message.reply_text(f"✅ <b>Промокод активирован!</b>\n\n💰 +{amount} ₽", parse_mode="HTML", reply_markup=main_keyboard(user_id))
         else:
@@ -572,7 +558,7 @@ def handle_message(update: Update, context):
 # ==================== АДМИН-КОМАНДЫ ====================
 def give_command(update: Update, context):
     if not context.user_data.get('admin_logged_in', False):
-        update.message.reply_text("❌ Нет доступа. Введи пароль: /admin 1997")
+        update.message.reply_text("❌ Нет доступа. Войдите в админ-панель через главное меню.")
         return
     try:
         user_id = int(context.args[0])
@@ -587,7 +573,7 @@ def give_command(update: Update, context):
 
 def take_command(update: Update, context):
     if not context.user_data.get('admin_logged_in', False):
-        update.message.reply_text("❌ Нет доступа. Введи пароль: /admin 1997")
+        update.message.reply_text("❌ Нет доступа. Войдите в админ-панель через главное меню.")
         return
     try:
         user_id = int(context.args[0])
@@ -602,7 +588,7 @@ def take_command(update: Update, context):
 
 def broadcast_command(update: Update, context):
     if not context.user_data.get('admin_logged_in', False):
-        update.message.reply_text("❌ Нет доступа. Введи пароль: /admin 1997")
+        update.message.reply_text("❌ Нет доступа. Войдите в админ-панель через главное меню.")
         return
     if not context.args:
         update.message.reply_text("❌ Используй: /broadcast текст")
@@ -620,7 +606,7 @@ def broadcast_command(update: Update, context):
 
 def bonus_all_command(update: Update, context):
     if not context.user_data.get('admin_logged_in', False):
-        update.message.reply_text("❌ Нет доступа. Введи пароль: /admin 1997")
+        update.message.reply_text("❌ Нет доступа. Войдите в админ-панель через главное меню.")
         return
     try:
         amount = float(context.args[0])
@@ -639,7 +625,7 @@ def bonus_all_command(update: Update, context):
 
 def create_promo_command(update: Update, context):
     if not context.user_data.get('admin_logged_in', False):
-        update.message.reply_text("❌ Нет доступа. Введи пароль: /admin 1997")
+        update.message.reply_text("❌ Нет доступа. Войдите в админ-панель через главное меню.")
         return
     try:
         code = context.args[0].upper()
@@ -666,14 +652,12 @@ if __name__ == "__main__":
     dp.add_handler(CallbackQueryHandler(button_handler))
     dp.add_handler(MessageHandler(Filters.text, handle_message))
     
-    dp.add_handler(CommandHandler("admin", admin_login))
     dp.add_handler(CommandHandler("give", give_command))
     dp.add_handler(CommandHandler("take", take_command))
     dp.add_handler(CommandHandler("broadcast", broadcast_command))
     dp.add_handler(CommandHandler("bonus_all", bonus_all_command))
     dp.add_handler(CommandHandler("create_promo", create_promo_command))
-    dp.add_handler(CallbackQueryHandler(admin_callback_handler, pattern="admin_"))
     
     updater.start_polling()
-    print("🤖 Бот запущен! Админ-панель доступна по паролю 1997")
+    print("🤖 Бот запущен!")
     updater.idle()
