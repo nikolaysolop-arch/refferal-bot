@@ -2,6 +2,8 @@ import sqlite3
 import random
 import string
 from datetime import datetime
+from threading import Thread
+from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler
 
@@ -11,6 +13,20 @@ ADMIN_ID = 6127276408
 REFERRAL_REWARD = 10.0
 REFERRED_REWARD = 5.0
 MIN_WITHDRAW = 50.0
+
+# Flask приложение для Render
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+def index():
+    return "Referral bot is running!"
+
+@flask_app.route('/health')
+def health():
+    return "OK"
+
+def run_flask():
+    flask_app.run(host='0.0.0.0', port=10000)
 
 def init_db():
     conn = sqlite3.connect('referral_bot.db')
@@ -143,6 +159,11 @@ def button_handler(update: Update, context):
 
 if __name__ == "__main__":
     init_db()
+    
+    # Запускаем Flask в отдельном потоке
+    Thread(target=run_flask).start()
+    
+    # Запускаем бота
     updater = Updater(token=BOT_TOKEN)
     dp = updater.dispatcher
     dp.add_handler(CommandHandler("start", start))
