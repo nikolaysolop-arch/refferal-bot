@@ -90,11 +90,20 @@ def create_user(user_id, username):
 def update_balance(user_id, amount):
     conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
-    c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+    # Получаем текущий баланс
+    c.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+    row = c.fetchone()
+    old_balance = row[0] if row else 0
+    new_balance = old_balance + amount
+    
+    # Обновляем баланс
+    c.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, user_id))
     if amount > 0:
         c.execute("UPDATE users SET total_earned = total_earned + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
     conn.close()
+    
+    print(f"DEBUG: update_balance user={user_id}, amount={amount}, old={old_balance}, new={new_balance}")
 
 def mark_task_completed(user_id, task_id):
     row = get_user(user_id)
@@ -129,11 +138,13 @@ def can_claim_daily(user_id):
 def claim_daily(user_id):
     is_pro = check_pro_status(user_id)
     bonus = PRO_DAILY_BONUS if is_pro else NORMAL_DAILY_BONUS
+    
     conn = sqlite3.connect('task_bot.db')
     c = conn.cursor()
     c.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (datetime.now().strftime('%Y-%m-%d'), user_id))
     conn.commit()
     conn.close()
+    
     update_balance(user_id, bonus)
     return bonus
 
@@ -455,7 +466,6 @@ def handle_buttons(update: Update, context):
 def withdraw_sbp_start(update: Update, context):
     query = update.callback_query
     query.answer()
-    context.user_data['withdraw_amount'] = query.message.reply_to_message.text.split("💰 Сумма к выводу:")[1].split("₽")[0].strip() if "💰 Сумма к выводу:" in query.message.text else context.user_data.get('withdraw_amount', 0)
     query.edit_message_text(
         f"📱 <b>ВЫВОД НА КАРТУ ЧЕРЕЗ СБП</b>\n\n"
         f"💰 Сумма к выводу: {context.user_data.get('withdraw_amount', 0)} ₽\n\n"
@@ -526,8 +536,6 @@ def withdraw_sbp_details(update: Update, context):
         update.message.reply_text("❌ Ошибка: баланс изменился. Начни вывод заново.", reply_markup=get_main_keyboard(uid))
         return ConversationHandler.END
     
-    stars_amount = rub_to_stars(amount)
-    usdt_amount = rub_to_usdt(amount)
     method_name = f'📱 СБП ({amount} ₽)'
     
     save_withdraw_request(uid, update.effective_user.username or update.effective_user.first_name, amount, method_name, text)
