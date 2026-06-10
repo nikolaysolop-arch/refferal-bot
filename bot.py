@@ -334,7 +334,6 @@ def button_handler(update: Update, context):
         if balance < MIN_WITHDRAW:
             query.answer(f"❌ Минимум {MIN_WITHDRAW} ₽. Твой баланс: {balance:.2f} ₽", show_alert=True)
             return
-        context.bot.send_message(uid, f"💳 Заявка на вывод {balance} ₽ отправлена администратору!")
         query.edit_message_text(
             f"✅ <b>Заявка отправлена!</b>\n\n"
             f"💰 Сумма: {balance:.2f} ₽\n"
@@ -391,8 +390,7 @@ def button_handler(update: Update, context):
     elif data == "admin_login":
         query.edit_message_text(
             "🔐 <b>Вход в админ-панель</b>\n\n"
-            "Введите пароль цифрами:\n\n"
-            "<code>1997</code>",
+            "Введите пароль:",
             parse_mode="HTML"
         )
         context.user_data['awaiting_admin_password'] = True
