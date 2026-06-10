@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from threading import Thread
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, PreCheckoutQueryHandler
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, PreCheckoutQueryHandler, ConversationHandler
 
 BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_ID = 6127276408
@@ -23,6 +23,9 @@ PRO_MIN_WITHDRAW = 100
 PRO_PRICE_STARS = 100
 
 TASKS = []
+
+# Состояния для вывода
+WAITING_SBP_DETAILS, WAITING_CARD_DETAILS, WAITING_CRYPTO_DETAILS, WAITING_STARS_DETAILS = range(4)
 
 def rub_to_stars(rub):
     return int(rub / 3)
@@ -398,33 +401,12 @@ def handle_buttons(update: Update, context):
         else:
             update.message.reply_text("❌ <b>Ты уже получал бонус сегодня</b>\n\nВозвращайся завтра.", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
     elif text == "💸 Вывод":
-        balance = row[2] if row else 0
-        min_withdraw = get_min_withdraw(uid)
-        total_tasks = len(TASKS)
-        completed_tasks = get_completed_count(uid)
-        if total_tasks > 0 and completed_tasks < total_tasks:
-            update.message.reply_text(
-                f"❌ <b>ВЫВОД НЕДОСТУПЕН</b>\n\n📋 Выполнено: {completed_tasks} из {total_tasks} заданий\n🚫 Осталось: {total_tasks - completed_tasks}\n\n💰 Баланс: {balance} ₽\n\n✅ Выполни все задания, чтобы получить вывод.",
-                parse_mode="HTML", reply_markup=get_main_keyboard(uid)
-            )
-            return
-        if balance < min_withdraw:
-            update.message.reply_text(
-                f"❌ <b>НЕДОСТАТОЧНО СРЕДСТВ</b>\n\n💰 Баланс: {balance} ₽\n⚡ Нужно: {min_withdraw} ₽\n\n📋 Выполнено: {completed_tasks} из {total_tasks}\n\n✅ Выполняй задания, чтобы накопить нужную сумму!",
-                parse_mode="HTML", reply_markup=get_main_keyboard(uid)
-            )
-            return
-        context.user_data['withdraw_amount'] = balance
-        withdraw_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📱 СБП (по номеру телефона)", callback_data="withdraw_sbp")],
-            [InlineKeyboardButton("💳 Банковская карта", callback_data="withdraw_card")],
-            [InlineKeyboardButton("🪙 Криптовалюта (USDT TRC20)", callback_data="withdraw_crypto")],
-            [InlineKeyboardButton("⭐ Telegram Stars", callback_data="withdraw_stars")],
-            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_menu")]
-        ])
         update.message.reply_text(
-            f"💸 <b>ВЫВОД СРЕДСТВ</b>\n\n💰 Сумма к выводу: <b>{balance} ₽</b>\n\n📝 <b>Выберите способ получения:</b>",
-            parse_mode="HTML", reply_markup=withdraw_keyboard
+            "💸 <b>ВЫВОД СРЕДСТВ</b>\n\n"
+            "Используй команду:\n"
+            "<code>/withdraw</code>",
+            parse_mode="HTML",
+            reply_markup=get_main_keyboard(uid)
         )
     elif text == "📊 Статистика":
         balance = row[2] if row else 0
@@ -452,6 +434,54 @@ def handle_buttons(update: Update, context):
             update.message.reply_text("❌ <b>Нет доступа</b>\n\nЭта панель только для администратора.", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
             return
         update.message.reply_text("✅ <b>АДМИН-ПАНЕЛЬ</b>\n\nДобро пожаловать!", parse_mode="HTML", reply_markup=admin_inline_keyboard())
+
+def withdraw_command(update: Update, context):
+    uid = update.effective_user.id
+    row = get_user(uid)
+    balance = row[2] if row else 0
+    min_withdraw = get_min_withdraw(uid)
+    total_tasks = len(TASKS)
+    completed_tasks = get_completed_count(uid)
+    
+    if total_tasks > 0 and completed_tasks < total_tasks:
+        update.message.reply_text(
+            f"❌ <b>ВЫВОД НЕДОСТУПЕН</b>\n\n"
+            f"📋 Выполнено: {completed_tasks} из {total_tasks} заданий\n"
+            f"🚫 Осталось: {total_tasks - completed_tasks}\n\n"
+            f"💰 Баланс: {balance} ₽\n\n"
+            f"✅ Выполни все задания, чтобы получить вывод.",
+            parse_mode="HTML",
+            reply_markup=get_main_keyboard(uid)
+        )
+        return
+    
+    if balance < min_withdraw:
+        update.message.reply_text(
+            f"❌ <b>НЕДОСТАТОЧНО СРЕДСТВ</b>\n\n"
+            f"💰 Баланс: {balance} ₽\n"
+            f"⚡ Нужно: {min_withdraw} ₽\n\n"
+            f"📋 Выполнено: {completed_tasks} из {total_tasks}\n\n"
+            f"✅ Выполняй задания, чтобы накопить нужную сумму!",
+            parse_mode="HTML",
+            reply_markup=get_main_keyboard(uid)
+        )
+        return
+    
+    context.user_data['withdraw_amount'] = balance
+    withdraw_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📱 СБП (по номеру телефона)", callback_data="withdraw_sbp")],
+        [InlineKeyboardButton("💳 Банковская карта", callback_data="withdraw_card")],
+        [InlineKeyboardButton("🪙 Криптовалюта (USDT TRC20)", callback_data="withdraw_crypto")],
+        [InlineKeyboardButton("⭐ Telegram Stars", callback_data="withdraw_stars")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="back_to_menu")]
+    ])
+    update.message.reply_text(
+        f"💸 <b>ВЫВОД СРЕДСТВ</b>\n\n"
+        f"💰 Сумма к выводу: <b>{balance} ₽</b>\n\n"
+        f"📝 <b>Выберите способ получения:</b>",
+        parse_mode="HTML",
+        reply_markup=withdraw_keyboard
+    )
 
 def button_handler(update: Update, context):
     query = update.callback_query
@@ -599,7 +629,7 @@ def button_handler(update: Update, context):
         )
         return
     
-    # АДМИН-ПАНЕЛЬ (информационные кнопки)
+    # АДМИН-ПАНЕЛЬ
     if uid != ADMIN_ID:
         query.edit_message_text("❌ Нет доступа")
         return
@@ -966,6 +996,7 @@ if __name__ == "__main__":
     dp.add_handler(CommandHandler("pro_off", pro_off_command))
     dp.add_handler(CommandHandler("pro_status", pro_status_command))
     dp.add_handler(CommandHandler("pay", pay_command))
+    dp.add_handler(CommandHandler("withdraw", withdraw_command))
     dp.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="check_sub"))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_buttons))
     dp.add_handler(CallbackQueryHandler(button_handler))
