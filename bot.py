@@ -1,7 +1,7 @@
 import sqlite3
 import random
 import string
-from datetime import datetime, timedelta
+from datetime import datetime
 from threading import Thread
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -10,15 +10,13 @@ from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageH
 # ==================== КОНФИГ ====================
 BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_ID = 6127276408
-ADMIN_PASSWORD = "1997"  # Пароль для входа в админ-панель
+ADMIN_PASSWORD = "1997"
 
-# Настройки
 REFERRAL_REWARD = 15.0
 REFERRED_REWARD = 10.0
 DAILY_BONUS = 5.0
 MIN_WITHDRAW = 100.0
 
-# Партнёрские ссылки
 PARTNER_LINKS = {
     "ozon": "https://ozon.ru/?partner=YOUR_ID",
     "wildberries": "https://wildberries.ru/?partner=YOUR_ID",
@@ -26,14 +24,12 @@ PARTNER_LINKS = {
     "kwork": "https://kwork.ru/?ref=YOUR_ID",
 }
 
-# Промокоды
 PROMO_CODES = {
     "START2025": 50.0,
     "BONUS100": 100.0,
     "FRIEND2025": 75.0
 }
 
-# Flask для Render
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
@@ -178,7 +174,7 @@ def admin_take_money(user_id, amount):
 def main_keyboard(user_id):
     row = get_user(user_id)
     balance = row[4] if row else 0
-    keyboard = InlineKeyboardMarkup([
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"💰 Баланс: {balance:.2f} ₽", callback_data="balance")],
         [InlineKeyboardButton("👥 Рефералы", callback_data="referrals"), InlineKeyboardButton("🔗 Моя ссылка", callback_data="my_link")],
         [InlineKeyboardButton("🏆 Топ рефералов", callback_data="top")],
@@ -188,7 +184,6 @@ def main_keyboard(user_id):
         [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
         [InlineKeyboardButton("❓ Поддержка", callback_data="support")]
     ])
-    return keyboard
 
 def admin_keyboard():
     return InlineKeyboardMarkup([
@@ -276,7 +271,6 @@ def button_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=main_keyboard(uid)
         )
-    
     elif data == "my_link":
         code = row[3] if row else None
         if code:
@@ -291,7 +285,6 @@ def button_handler(update: Update, context):
                 parse_mode="HTML",
                 reply_markup=keyboard
             )
-    
     elif data == "referrals":
         conn = sqlite3.connect('referral_bot.db')
         c = conn.cursor()
@@ -305,7 +298,6 @@ def button_handler(update: Update, context):
             for i, r in enumerate(rows, 1):
                 text += f"{i}. @{r[0] or 'скрыто'}\n"
             query.edit_message_text(text, parse_mode="HTML", reply_markup=main_keyboard(uid))
-    
     elif data == "top":
         conn = sqlite3.connect('referral_bot.db')
         c = conn.cursor()
@@ -320,14 +312,12 @@ def button_handler(update: Update, context):
                 medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "📌"
                 text += f"{medal} {i}. @{username or 'anon'} — {count} рефералов\n"
             query.edit_message_text(text, parse_mode="HTML", reply_markup=main_keyboard(uid))
-    
     elif data == "daily":
         if can_claim_daily(uid):
             claim_daily(uid)
             query.edit_message_text(f"🎁 Ежедневный бонус получен!\n💰 +{DAILY_BONUS} ₽", reply_markup=main_keyboard(uid))
         else:
             query.edit_message_text("❌ Ты уже получал бонус сегодня.\n📅 Заходи завтра!", reply_markup=main_keyboard(uid))
-    
     elif data == "promo":
         query.edit_message_text(
             "🎟 <b>Введи промокод</b>\n\n"
@@ -340,7 +330,6 @@ def button_handler(update: Update, context):
             reply_markup=main_keyboard(uid)
         )
         context.user_data['awaiting_promo'] = True
-    
     elif data == "withdraw":
         balance = row[4] if row else 0
         if balance < MIN_WITHDRAW:
@@ -362,7 +351,6 @@ def button_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=main_keyboard(uid)
         )
-    
     elif data == "stats":
         balance = row[4] if row else 0
         earned = row[5] if row else 0
@@ -383,7 +371,6 @@ def button_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=main_keyboard(uid)
         )
-    
     elif data == "earn":
         add_click(uid)
         query.edit_message_text(
@@ -395,7 +382,6 @@ def button_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=get_earn_keyboard()
         )
-    
     elif data == "support":
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📩 Написать админу", url="https://t.me/mskvoru")],
@@ -407,7 +393,6 @@ def button_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=keyboard
         )
-    
     elif data == "back":
         query.edit_message_text("🤝 Главное меню:", reply_markup=main_keyboard(uid))
 
@@ -418,12 +403,10 @@ def admin_login(update: Update, context):
         return
     if context.args[0] == ADMIN_PASSWORD:
         context.user_data['admin_logged_in'] = True
-        keyboard = admin_keyboard()
         update.message.reply_text(
-            "👑 <b>ДОБРО ПОЖАЛОВАТЬ В АДМИН-ПАНЕЛЬ!</b>\n\n"
-            "Выбери действие:",
+            "👑 <b>ДОБРО ПОЖАЛОВАТЬ В АДМИН-ПАНЕЛЬ!</b>\n\nВыбери действие:",
             parse_mode="HTML",
-            reply_markup=keyboard
+            reply_markup=admin_keyboard()
         )
     else:
         update.message.reply_text("❌ Неверный пароль! Доступ запрещён.")
@@ -438,7 +421,6 @@ def admin_callback_handler(update: Update, context):
         query.edit_message_text("❌ Нет доступа. Введи пароль: /admin 1997")
         return
     
-    # Выдать деньги
     if data == "admin_give":
         query.edit_message_text(
             "💰 <b>Выдать деньги</b>\n\n"
@@ -448,8 +430,6 @@ def admin_callback_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=admin_back_keyboard()
         )
-    
-    # Забрать деньги
     elif data == "admin_take":
         query.edit_message_text(
             "💸 <b>Забрать деньги</b>\n\n"
@@ -459,8 +439,6 @@ def admin_callback_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=admin_back_keyboard()
         )
-    
-    # Рассылка
     elif data == "admin_broadcast":
         query.edit_message_text(
             "📢 <b>Рассылка</b>\n\n"
@@ -470,8 +448,6 @@ def admin_callback_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=admin_back_keyboard()
         )
-    
-    # Список пользователей
     elif data == "admin_users":
         users = get_all_users()
         if not users:
@@ -483,8 +459,6 @@ def admin_callback_handler(update: Update, context):
         if len(users) > 20:
             text += f"\n... и ещё {len(users) - 20} пользователей"
         query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
-    
-    # Статистика
     elif data == "admin_stats":
         total_users, total_earned, total_balance, total_refs, total_clicks = get_stats()
         text = (
@@ -496,8 +470,6 @@ def admin_callback_handler(update: Update, context):
             f"🖱 Переходов: {total_clicks}"
         )
         query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
-    
-    # Бонус всем
     elif data == "admin_bonus_all":
         query.edit_message_text(
             "🎁 <b>Бонус всем пользователям</b>\n\n"
@@ -507,8 +479,6 @@ def admin_callback_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=admin_back_keyboard()
         )
-    
-    # Создать промокод
     elif data == "admin_create_promo":
         query.edit_message_text(
             "🎟 <b>Создать промокод</b>\n\n"
@@ -518,8 +488,6 @@ def admin_callback_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=admin_back_keyboard()
         )
-    
-    # Изменить бонусы
     elif data == "admin_bonus_settings":
         query.edit_message_text(
             "⚙️ <b>Настройки бонусов</b>\n\n"
@@ -530,8 +498,6 @@ def admin_callback_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=admin_back_keyboard()
         )
-    
-    # Топ пользователей
     elif data == "admin_top":
         top = get_top_users(10)
         if not top:
@@ -542,8 +508,6 @@ def admin_callback_handler(update: Update, context):
             medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "💰"
             text += f"{medal} {i}. @{username or 'anon'} — {earned:.2f} ₽\n"
         query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
-    
-    # Активность за день
     elif data == "admin_daily_stats":
         conn = sqlite3.connect('referral_bot.db')
         c = conn.cursor()
@@ -560,8 +524,6 @@ def admin_callback_handler(update: Update, context):
             f"🆕 Новых пользователей: {new_today} чел."
         )
         query.edit_message_text(text, parse_mode="HTML", reply_markup=admin_back_keyboard())
-    
-    # Очистить базу (подтверждение)
     elif data == "admin_clear_confirm":
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ ДА, ОЧИСТИТЬ", callback_data="admin_clear_yes")],
@@ -575,7 +537,6 @@ def admin_callback_handler(update: Update, context):
             parse_mode="HTML",
             reply_markup=keyboard
         )
-    
     elif data == "admin_clear_yes":
         conn = sqlite3.connect('referral_bot.db')
         c = conn.cursor()
@@ -584,14 +545,12 @@ def admin_callback_handler(update: Update, context):
         conn.close()
         init_db()
         query.edit_message_text("✅ База данных успешно очищена!", reply_markup=admin_back_keyboard())
-    
     elif data == "admin_back":
         query.edit_message_text(
             "👑 <b>АДМИН-ПАНЕЛЬ</b>\n\nВыбери действие:",
             parse_mode="HTML",
             reply_markup=admin_keyboard()
         )
-    
     elif data == "admin_close":
         context.user_data['admin_logged_in'] = False
         query.edit_message_text("👑 Админ-панель закрыта", reply_markup=main_keyboard(uid))
@@ -702,5 +661,19 @@ if __name__ == "__main__":
     updater = Updater(token=BOT_TOKEN)
     dp = updater.dispatcher
     
-    # Пользовательские команды
-    dp.add_handler(Command
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("id", id_command))
+    dp.add_handler(CallbackQueryHandler(button_handler))
+    dp.add_handler(MessageHandler(Filters.text, handle_message))
+    
+    dp.add_handler(CommandHandler("admin", admin_login))
+    dp.add_handler(CommandHandler("give", give_command))
+    dp.add_handler(CommandHandler("take", take_command))
+    dp.add_handler(CommandHandler("broadcast", broadcast_command))
+    dp.add_handler(CommandHandler("bonus_all", bonus_all_command))
+    dp.add_handler(CommandHandler("create_promo", create_promo_command))
+    dp.add_handler(CallbackQueryHandler(admin_callback_handler, pattern="admin_"))
+    
+    updater.start_polling()
+    print("🤖 Бот запущен! Админ-панель доступна по паролю 1997")
+    updater.idle()
