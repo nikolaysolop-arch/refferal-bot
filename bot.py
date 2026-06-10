@@ -23,7 +23,7 @@ PRO_TASK_REWARD = 20
 PRO_DAILY_BONUS = 15
 PRO_MIN_WITHDRAW = 100
 
-PRO_PRICE_STARS = 100
+PRO_PRICE_STARS = 100  # 100 Stars
 
 TASKS = []
 
@@ -309,7 +309,7 @@ def pro_payment(update: Update, context):
         update.message.reply_text("👑 У тебя уже активна PRO-подписка!", parse_mode="HTML", reply_markup=get_main_keyboard(uid))
         return
     
-    prices = [LabeledPrice(label="PRO-подписка на 30 дней", amount=PRO_PRICE_STARS * 100)]
+    prices = [LabeledPrice(label="PRO-подписка на 30 дней", amount=PRO_PRICE_STARS)]  # Исправлено: 100 Stars, не 10000
     
     try:
         update.message.reply_invoice(
@@ -767,5 +767,5 @@ if __name__ == "__main__":
     dp.add_handler(MessageHandler(Filters.successful_payment, successful_payment))
     
     updater.start_polling()
-    print("Бот с PRO-подпиской и админ-управлением запущен!")
+    print("Бот с PRO-подпиской запущен!")
     updater.idle()
