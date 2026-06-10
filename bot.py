@@ -9,7 +9,6 @@ from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageH
 
 BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_ID = 6127276408
-ADMIN_PASSWORD = "1997"
 
 DAILY_BONUS = 5
 MIN_WITHDRAW = 200
@@ -132,10 +131,8 @@ def admin_send_money(user_id, amount):
     return True
 
 def check_subscription(bot, user_id, channel_username):
-    # Админ пропускает проверку
     if user_id == ADMIN_ID:
         return True
-    
     try:
         chat_member = bot.get_chat_member(chat_id=channel_username, user_id=user_id)
         status = chat_member.status
@@ -176,7 +173,6 @@ def start(update: Update, context):
     uid = update.effective_user.id
     name = update.effective_user.username or update.effective_user.first_name
     
-    # Проверяем подписку на канал (админ пропускает)
     if not check_subscription(context.bot, uid, REQUIRED_CHANNEL):
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔗 ПОДПИСАТЬСЯ НА КАНАЛ", url="https://t.me/prof1t_77")],
@@ -252,7 +248,6 @@ def handle_buttons(update: Update, context):
     text = update.message.text
     uid = update.effective_user.id
     
-    # Проверка подписки (админ пропускает)
     if not check_subscription(context.bot, uid, REQUIRED_CHANNEL):
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔗 ПОДПИСАТЬСЯ НА КАНАЛ", url="https://t.me/prof1t_77")],
@@ -326,12 +321,15 @@ def handle_buttons(update: Update, context):
         update.message.reply_text("❓ <b>Помощь</b>\n\nПо всем вопросам пиши админу:\n👨‍💻 @n1kolay0_0\n\nОбычно отвечаю в течение нескольких часов.", parse_mode="HTML", reply_markup=get_main_keyboard())
     
     elif text == "⚡ Админ":
-        # Админ-панель доступна только по ID
         if uid != ADMIN_ID:
             update.message.reply_text("❌ <b>Нет доступа</b>\n\nЭта панель только для администратора.", parse_mode="HTML", reply_markup=get_main_keyboard())
             return
-        update.message.reply_text("🔐 <b>Введите пароль:</b>", parse_mode="HTML")
-        context.user_data['awaiting_admin_password'] = True
+        # Сразу открываем админ-панель без пароля
+        update.message.reply_text(
+            "✅ <b>АДМИН-ПАНЕЛЬ</b>\n\nДобро пожаловать!",
+            parse_mode="HTML",
+            reply_markup=admin_inline_keyboard()
+        )
 
 def button_handler(update: Update, context):
     query = update.callback_query
@@ -416,7 +414,7 @@ def button_handler(update: Update, context):
     elif data == "back_tasks":
         query.edit_message_text("📋 <b>Доступные задания</b>", parse_mode="HTML", reply_markup=tasks_keyboard(uid))
     
-    # Админ-панель (доступна только по ID)
+    # Админ-панель (без пароля, только по ID)
     elif data == "admin_give":
         if uid != ADMIN_ID:
             query.edit_message_text("❌ Нет доступа")
@@ -460,22 +458,11 @@ def button_handler(update: Update, context):
         if uid != ADMIN_ID:
             query.edit_message_text("❌ Нет доступа")
             return
-        context.user_data['admin_logged_in'] = False
         query.edit_message_text("🔒 Админ-панель закрыта", reply_markup=get_main_keyboard())
 
 def handle_message(update: Update, context):
-    user_id = update.effective_user.id
-    text = update.message.text.strip()
-    
-    if context.user_data.get('awaiting_admin_password'):
-        if text == ADMIN_PASSWORD and user_id == ADMIN_ID:
-            context.user_data['admin_logged_in'] = True
-            context.user_data['awaiting_admin_password'] = False
-            update.message.reply_text("✅ <b>Доступ разрешён</b>\n\nДобро пожаловать в админ-панель.", parse_mode="HTML", reply_markup=admin_inline_keyboard())
-        else:
-            context.user_data['awaiting_admin_password'] = False
-            update.message.reply_text("❌ <b>Неверный пароль или нет доступа</b>", parse_mode="HTML", reply_markup=get_main_keyboard())
-        return
+    # Эта функция больше не нужна для пароля, но оставим для других сообщений
+    pass
 
 def give_command(update: Update, context):
     if update.effective_user.id != ADMIN_ID:
@@ -569,7 +556,6 @@ if __name__ == "__main__":
     dp.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="check_sub"))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_buttons))
     dp.add_handler(CallbackQueryHandler(button_handler))
-    dp.add_handler(MessageHandler(Filters.text, handle_message))
     
     updater.start_polling()
     print("Бот запущен!")
