@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from threading import Thread
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
 
 BOT_TOKEN = "8309241267:AAHoQhI7TXoDIbTeb1wiSQ9zjc6UwddgnG0"
 ADMIN_ID = 6127276408
@@ -111,7 +111,6 @@ def get_top_referrals(limit=10):
     return rows
 
 def apply_promo(user_id, code):
-    # Промокоды: NEW2025, BONUS50, WELCOME
     promos = {
         "NEW2025": 50.0,
         "BONUS50": 50.0,
@@ -159,8 +158,7 @@ def start(update: Update, context):
             add_referral(ref_id)
             update_balance(uid, REFERRED_REWARD)
             context.bot.send_message(ref_id, f"🎉 +{REFERRAL_REWARD} ₽ за реферала @{name}")
-            # Уведомление админу
-            context.bot.send_message(ADMIN_ID, f"👥 Новый реферал!\n@{name} перешёл по ссылке @{get_user(ref_id)['username']}")
+            context.bot.send_message(ADMIN_ID, f"👥 Новый реферал!\n@{name} перешёл по ссылке от @{get_user(ref_id)['username']}")
             update.message.reply_text(f"🎉 Бонус {REFERRED_REWARD} ₽ за регистрацию!")
     update.message.reply_text("🤝 Реферальный бот\n👇 Меню:", reply_markup=main_keyboard(uid))
 
@@ -217,7 +215,7 @@ def button_handler(update: Update, context):
         context.bot.send_message(ADMIN_ID, f"💳 ЗАЯВКА НА ВЫВОД\n👤 @{query.from_user.username}\n💰 Сумма: {u['balance']:.2f} ₽\n🆔 ID: {uid}")
         query.edit_message_text("✅ Заявка отправлена! Админ свяжется.", reply_markup=main_keyboard(uid))
     elif data == 'support':
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📩 Написать админу", url=f"https://t.me/{context.bot.username}?start=admin")]])
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📩 Написать админу", url=f"https://t.me/mskvoru")]])
         query.edit_message_text("❓ По всем вопросам пиши админу:\nКнопка ниже", reply_markup=keyboard)
     elif data == 'menu':
         query.edit_message_text("🤝 Главное меню:", reply_markup=main_keyboard(uid))
@@ -239,6 +237,6 @@ if __name__ == "__main__":
     dp = updater.dispatcher
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CallbackQueryHandler(button_handler))
-    dp.add_handler(MessageHandler(None, handle_message))
+    dp.add_handler(MessageHandler(Filters.text, handle_message))
     updater.start_polling()
     updater.idle()
